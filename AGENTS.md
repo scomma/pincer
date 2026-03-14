@@ -132,6 +132,16 @@ The `error` field is a machine-readable code (snake_case). The `message` field i
 
 Tests parse real UIAutomator XML dumps from `tests/fixtures/`. To test a new command, capture a dump from a real device (`adb exec-out uiautomator dump /dev/tty`) and save it as a fixture.
 
+### Fixture scrubbing is mandatory
+
+**Never commit raw fixture dumps that contain real personal or account data.** Before a fixture is added or updated, scrub or replace all user-derived content with synthetic placeholders:
+
+- Chat names, message bodies, usernames, profile names
+- Email addresses, phone numbers, physical addresses, government IDs, order numbers, license plates
+- Account/profile fields, balances, birthdays, saved locations, shopping carts, purchase history, recent searches, and any other behavioral data tied to a real person
+
+If a fixture must preserve structure, keep the UI shape and element IDs but replace the visible values with generated equivalents. If unsanitized fixture data is committed by mistake, fixing the working tree is **not sufficient** — rewrite the affected git history and force-push the cleaned refs.
+
 ### MockDevice
 
 `core.MockDevice` records all calls (taps, text input, key events) and returns fixture XML from `DumpUI`. Create one with:
