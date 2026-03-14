@@ -55,7 +55,7 @@ func newADB() *core.ADB {
 func outputJSON(data any) {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
-	enc.Encode(data)
+	_ = enc.Encode(data)
 }
 
 func outputError(err error) {
