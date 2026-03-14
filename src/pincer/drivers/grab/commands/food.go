@@ -39,9 +39,11 @@ func FoodSearch(ctx context.Context, driver *grab.GrabDriver, query string) (*Fo
 		if err := performSearch(ctx, driver, query); err != nil {
 			return nil, err
 		}
-		// Wait for search results to appear instead of a fixed sleep.
-		_, _ = driver.Workflow.WaitForElement(ctx, 5*time.Second,
-			core.HasID("com.grabtaxi.passenger:id/duxton_card"))
+		// Wait for search results to load.
+		_, _ = driver.Workflow.WaitForElement(ctx, 5*time.Second, func(e *core.Element) bool {
+			return e.ResourceID == "com.grabtaxi.passenger:id/duxton_card" ||
+				e.ResourceID == "com.grabtaxi.passenger:id/horizontal_merchant_card"
+		})
 	}
 
 	// Collect restaurants across multiple screens by scrolling.
@@ -82,18 +84,35 @@ func FoodSearch(ctx context.Context, driver *grab.GrabDriver, query string) (*Fo
 	}, nil
 }
 
+func findSearchBar(ctx context.Context, driver *grab.GrabDriver) (*core.Element, error) {
+	// The search bar hides when scrolled down. Scroll up to reveal it.
+	for i := 0; i < 4; i++ {
+		finder, err := driver.Workflow.FreshDump(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		bar := finder.ByID("com.grabtaxi.passenger:id/search_bar_clickable_area")
+		if bar == nil {
+			bar = finder.ByID("com.grabtaxi.passenger:id/search_entry_content")
+		}
+		if bar != nil {
+			return bar, nil
+		}
+
+		// Swipe down-to-up to scroll the page up.
+		if err := driver.Dev.Swipe(ctx, 540, 400, 540, 1600, 300); err != nil {
+			return nil, err
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return nil, core.ErrElementNotFound()
+}
+
 func performSearch(ctx context.Context, driver *grab.GrabDriver, query string) error {
-	finder, err := driver.Workflow.FreshDump(ctx)
+	searchBar, err := findSearchBar(ctx, driver)
 	if err != nil {
 		return err
-	}
-
-	searchBar := finder.ByID("com.grabtaxi.passenger:id/search_bar_clickable_area")
-	if searchBar == nil {
-		searchBar = finder.ByID("com.grabtaxi.passenger:id/search_entry_content")
-	}
-	if searchBar == nil {
-		return core.ErrElementNotFound()
 	}
 
 	c := searchBar.Center()
@@ -101,24 +120,51 @@ func performSearch(ctx context.Context, driver *grab.GrabDriver, query string) e
 		return err
 	}
 
-	// Wait for the search input field to be ready rather than a fixed sleep.
+	// Wait for the search input field to be ready.
 	_, _ = driver.Workflow.WaitForElement(ctx, 3*time.Second, func(e *core.Element) bool {
 		return e.Focused && e.Class == "android.widget.EditText"
 	})
+
+	// Clear any leftover text from previous searches.
+	if err := driver.Dev.ClearField(ctx); err != nil {
+		return err
+	}
+	// Pause to let the input system process all the delete keyevents
+	// before typing new text. Without this, characters interleave.
+	time.Sleep(1 * time.Second)
 
 	if err := driver.Dev.TypeText(ctx, query); err != nil {
 		return err
 	}
 
+	// Grab shows search suggestions after typing. Tap "See results for ..."
+	// to execute the actual search (ENTER just shows suggestions).
+	time.Sleep(2 * time.Second)
+
+	finder, err := driver.Workflow.FreshDump(ctx)
+	if err != nil {
+		return err
+	}
+
+	seeResults := finder.First(core.HasText("See results for"))
+	if seeResults != nil {
+		return seeResults.Tap(ctx, driver.Dev)
+	}
+
+	// Fallback: try pressing enter.
 	return driver.Dev.KeyEvent(ctx, "KEYCODE_ENTER")
 }
 
-// parseRestaurantCards extracts restaurant info from duxton_card elements.
+// parseRestaurantCards extracts restaurant info from card elements.
+// Grab uses different card IDs depending on context: duxton_card on the
+// feed, horizontal_merchant_card on search results.
 func parseRestaurantCards(finder *core.ElementFinder) []Restaurant {
 	var restaurants []Restaurant
 
-	// Find all duxton_card containers (restaurant cards)
-	cards := finder.All(core.HasID("com.grabtaxi.passenger:id/duxton_card"))
+	cards := finder.All(func(e *core.Element) bool {
+		return e.ResourceID == "com.grabtaxi.passenger:id/duxton_card" ||
+			e.ResourceID == "com.grabtaxi.passenger:id/horizontal_merchant_card"
+	})
 	for _, card := range cards {
 		r := parseCard(card)
 		if r.Name != "" {

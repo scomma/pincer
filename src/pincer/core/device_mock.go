@@ -94,6 +94,13 @@ func (m *MockDevice) Tap(_ context.Context, x, y int) error {
 	return nil
 }
 
+func (m *MockDevice) ClearField(_ context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.calls = append(m.calls, "ClearField")
+	return nil
+}
+
 func (m *MockDevice) TypeText(_ context.Context, text string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -19,6 +19,7 @@ const (
 	ScreenHome        Screen = "HOME"
 	ScreenFoodHome    Screen = "FOOD_HOME"
 	ScreenFoodResults Screen = "FOOD_RESULTS"
+	ScreenFoodSearch  Screen = "FOOD_SEARCH"
 	ScreenRestaurant  Screen = "RESTAURANT"
 	ScreenLoginPhone  Screen = "LOGIN_PHONE"
 	ScreenLoginOTP    Screen = "LOGIN_OTP"
@@ -87,6 +88,12 @@ func DetectScreen(finder *core.ElementFinder) Screen {
 	hasFoodTile := finder.First(core.HasContentDesc("Food, double tap to select")) != nil
 	hasTransportTile := finder.First(core.HasContentDesc("Transport, double tap to select")) != nil
 
+	// Food search/suggestions screen: has the search bar and suggestion items.
+	hasDuxtonSearchBar := finder.ByID("com.grabtaxi.passenger:id/duxton_search_bar") != nil
+	if hasDuxtonSearchBar {
+		return ScreenFoodSearch
+	}
+
 	// Food results: has restaurant cards (duxton_card) or the feed list.
 	if hasDuxtonCard || (hasFeedList && hasSearchBar) {
 		return ScreenFoodResults
@@ -107,7 +114,7 @@ func DetectScreen(finder *core.ElementFinder) Screen {
 
 // NavigateToFoodHome navigates from wherever we are to the Food home screen.
 func (b *GrabDriver) NavigateToFoodHome(ctx context.Context) error {
-	const maxRetries = 3
+	const maxRetries = 5
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		finder, err := b.Workflow.FreshDump(ctx)
 		if err != nil {
@@ -120,6 +127,13 @@ func (b *GrabDriver) NavigateToFoodHome(ctx context.Context) error {
 		switch screen {
 		case ScreenFoodHome, ScreenFoodResults:
 			return nil
+		case ScreenFoodSearch:
+			// On search overlay — press back to return to food home/results.
+			if err := b.Dev.KeyEvent(ctx, "KEYCODE_BACK"); err != nil {
+				return err
+			}
+			time.Sleep(1 * time.Second)
+			continue
 		case ScreenHome:
 			foodTile := finder.First(core.HasContentDesc("Food, double tap to select"))
 			if foodTile == nil {

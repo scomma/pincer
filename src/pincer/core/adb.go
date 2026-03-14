@@ -13,6 +13,7 @@ type Device interface {
 	DumpUI(ctx context.Context) (string, error)
 	Tap(ctx context.Context, x, y int) error
 	TypeText(ctx context.Context, text string) error
+	ClearField(ctx context.Context) error
 	KeyEvent(ctx context.Context, key string) error
 	Swipe(ctx context.Context, x1, y1, x2, y2, durationMS int) error
 	Screenshot(ctx context.Context) ([]byte, error)
@@ -101,6 +102,21 @@ func (a *ADB) DumpUI(ctx context.Context) (string, error) {
 func (a *ADB) Tap(ctx context.Context, x, y int) error {
 	_, err := a.Shell(ctx, fmt.Sprintf("input tap %d %d", x, y))
 	return err
+}
+
+// ClearField clears text from the currently focused input field.
+// Moves cursor to end then sends backspaces to delete existing text.
+func (a *ADB) ClearField(ctx context.Context) error {
+	if err := a.KeyEvent(ctx, "KEYCODE_MOVE_END"); err != nil {
+		return err
+	}
+	time.Sleep(200 * time.Millisecond)
+	// Send 20 backspaces in a single input keyevent call (batched).
+	if _, err := a.Shell(ctx, "input keyevent 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67"); err != nil {
+		return err
+	}
+	time.Sleep(200 * time.Millisecond)
+	return nil
 }
 
 // TypeText types text on the device.
