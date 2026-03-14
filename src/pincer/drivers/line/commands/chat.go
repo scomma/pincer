@@ -189,32 +189,53 @@ func ChatRead(ctx context.Context, driver *line.LineDriver, chatName string, lim
 		return nil, fmt.Errorf("navigate to chats: %w", err)
 	}
 
-	// Find and tap the chat
-	finder, err := driver.Workflow.FreshDump(ctx)
+	// Scroll up to the top of the chat list first (previous commands may
+	// have scrolled it down), then scroll down looking for the target chat.
+	for i := 0; i < 3; i++ {
+		_ = driver.Dev.Swipe(ctx, 540, 400, 540, 1600, 200)
+		time.Sleep(300 * time.Millisecond)
+	}
+
+	// Look for the target chat, scrolling down if needed.
+	const maxScrolls = 10
+	for scroll := 0; scroll <= maxScrolls; scroll++ {
+		finder, err := driver.Workflow.FreshDump(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		chatEl := finder.ByText(chatName, true)
+		if chatEl != nil {
+			c := chatEl.Center()
+			if err := driver.Dev.Tap(ctx, c.X, c.Y); err != nil {
+				return nil, err
+			}
+			goto chatOpened
+		}
+
+		if scroll < maxScrolls {
+			if err := driver.Dev.Swipe(ctx, 540, 1600, 540, 800, 300); err != nil {
+				return nil, err
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
+	return nil, core.NewDriverError("chat_not_found", "Chat '"+chatName+"' not found after scrolling")
+
+chatOpened:
+	// Wait for chat detail screen to load.
+	_, _ = driver.Workflow.WaitForElement(ctx, 5*time.Second, func(e *core.Element) bool {
+		return e.ResourceID == "jp.naver.line.android:id/chathistory_message_edit_text" ||
+			e.ResourceID == "jp.naver.line.android:id/chat_ui_message_edit" ||
+			e.ResourceID == "jp.naver.line.android:id/chathistory_message_list"
+	})
+
+	detailFinder, err := driver.Workflow.FreshDump(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	chatEl := finder.ByText(chatName, true)
-	if chatEl == nil {
-		return nil, core.NewDriverError("chat_not_found", "Chat '"+chatName+"' not found in visible list")
-	}
-
-	c := chatEl.Center()
-	if err := driver.Dev.Tap(ctx, c.X, c.Y); err != nil {
-		return nil, err
-	}
-
-	// Wait for chat detail screen to load instead of a fixed sleep.
-	_, _ = driver.Workflow.WaitForElement(ctx, 5*time.Second,
-		core.HasID("jp.naver.line.android:id/chathistory_message_edit_text"))
-
-	finder, err = driver.Workflow.FreshDump(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	messages := parseChatMessages(finder)
+	messages := parseChatMessages(detailFinder)
 	if limit > 0 && len(messages) > limit {
 		messages = messages[len(messages)-limit:]
 	}

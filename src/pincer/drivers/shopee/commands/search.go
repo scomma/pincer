@@ -40,7 +40,13 @@ func Search(ctx context.Context, driver *shopee.ShopeeDriver, query string) (*Se
 		return nil, err
 	}
 
-	searchBar := finder.ByID("com.shopee.th:id/home_square_root")
+	searchBar := finder.ByID("com.shopee.th:id/search_bar")
+	if searchBar == nil {
+		searchBar = finder.ByID("com.shopee.th:id/search_bar_cell")
+	}
+	if searchBar == nil {
+		searchBar = finder.ByID("com.shopee.th:id/home_square_root")
+	}
 	if searchBar == nil {
 		searchBar = finder.First(func(e *core.Element) bool {
 			return e.Hint != "" && e.Class == "android.widget.EditText"
