@@ -25,21 +25,23 @@ type SearchResult struct {
 }
 
 // Search executes the `shopee search` command.
+// Navigates to home, searches, then scrolls to collect results.
 func Search(ctx context.Context, driver *shopee.ShopeeDriver, query string) (*SearchResult, error) {
 	if err := driver.EnsureAppRunning(ctx); err != nil {
 		return nil, fmt.Errorf("ensure app running: %w", err)
 	}
 
-	// Tap the search bar on home
+	if err := driver.NavigateToHome(ctx); err != nil {
+		return nil, fmt.Errorf("navigate to home: %w", err)
+	}
+
 	finder, err := driver.Workflow.FreshDump(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	// Look for search bar — Shopee uses a search input at the top
 	searchBar := finder.ByID("com.shopee.th:id/home_square_root")
 	if searchBar == nil {
-		// Try the text-based search hint
 		searchBar = finder.First(func(e *core.Element) bool {
 			return e.Hint != "" && e.Class == "android.widget.EditText"
 		})
@@ -52,7 +54,11 @@ func Search(ctx context.Context, driver *shopee.ShopeeDriver, query string) (*Se
 	if err := driver.Dev.Tap(ctx, c.X, c.Y); err != nil {
 		return nil, err
 	}
-	time.Sleep(1 * time.Second)
+
+	// Wait for the search input to be ready.
+	_, _ = driver.Workflow.WaitForElement(ctx, 3*time.Second, func(e *core.Element) bool {
+		return e.Focused && e.Class == "android.widget.EditText"
+	})
 
 	if err := driver.Dev.TypeText(ctx, query); err != nil {
 		return nil, err
@@ -60,14 +66,41 @@ func Search(ctx context.Context, driver *shopee.ShopeeDriver, query string) (*Se
 	if err := driver.Dev.KeyEvent(ctx, "KEYCODE_ENTER"); err != nil {
 		return nil, err
 	}
+
+	// Wait for search results to load.
 	time.Sleep(2 * time.Second)
 
-	finder, err = driver.Workflow.FreshDump(ctx)
-	if err != nil {
-		return nil, err
-	}
+	// Collect products across multiple screens by scrolling.
+	var products []Product
+	seen := map[string]bool{}
+	const maxScrolls = 5
 
-	products := parseSearchResults(finder)
+	for scroll := 0; scroll <= maxScrolls; scroll++ {
+		finder, err = driver.Workflow.FreshDump(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		newCount := 0
+		for _, p := range parseSearchResults(finder) {
+			if !seen[p.Name] {
+				seen[p.Name] = true
+				products = append(products, p)
+				newCount++
+			}
+		}
+
+		if newCount == 0 {
+			break
+		}
+
+		if scroll < maxScrolls {
+			if err := driver.Dev.Swipe(ctx, 540, 1600, 540, 800, 300); err != nil {
+				return nil, err
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
 
 	return &SearchResult{
 		Products: products,

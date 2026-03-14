@@ -27,6 +27,7 @@ type ChatListResult struct {
 }
 
 // ChatList executes the `line chat list` command.
+// Scrolls to collect chats beyond the first visible page.
 func ChatList(ctx context.Context, driver *line.LineDriver, unreadOnly bool, limit int) (*ChatListResult, error) {
 	if err := driver.EnsureAppRunning(ctx); err != nil {
 		return nil, fmt.Errorf("ensure app running: %w", err)
@@ -36,12 +37,39 @@ func ChatList(ctx context.Context, driver *line.LineDriver, unreadOnly bool, lim
 		return nil, fmt.Errorf("navigate to chats: %w", err)
 	}
 
-	finder, err := driver.Workflow.FreshDump(ctx)
-	if err != nil {
-		return nil, err
-	}
+	// Collect chats across multiple screens by scrolling.
+	var chats []ChatEntry
+	seen := map[string]bool{}
+	const maxScrolls = 5
 
-	chats := parseChatList(finder)
+	for scroll := 0; scroll <= maxScrolls; scroll++ {
+		finder, err := driver.Workflow.FreshDump(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		newCount := 0
+		for _, c := range parseChatList(finder) {
+			if !seen[c.Name] {
+				seen[c.Name] = true
+				chats = append(chats, c)
+				newCount++
+			}
+		}
+
+		// Stop scrolling if we already have enough for the limit,
+		// or if no new chats appeared (end of list).
+		if newCount == 0 || (limit > 0 && len(chats) >= limit) {
+			break
+		}
+
+		if scroll < maxScrolls {
+			if err := driver.Dev.Swipe(ctx, 540, 1600, 540, 800, 300); err != nil {
+				return nil, err
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
 
 	if unreadOnly {
 		var filtered []ChatEntry
@@ -177,8 +205,9 @@ func ChatRead(ctx context.Context, driver *line.LineDriver, chatName string, lim
 		return nil, err
 	}
 
-	// Wait for chat detail to load
-	time.Sleep(2 * time.Second)
+	// Wait for chat detail screen to load instead of a fixed sleep.
+	_, _ = driver.Workflow.WaitForElement(ctx, 5*time.Second,
+		core.HasID("jp.naver.line.android:id/chathistory_message_edit_text"))
 
 	finder, err = driver.Workflow.FreshDump(ctx)
 	if err != nil {
@@ -199,8 +228,8 @@ func ChatRead(ctx context.Context, driver *line.LineDriver, chatName string, lim
 func parseChatMessages(finder *core.ElementFinder) []Message {
 	var messages []Message
 
-	// Look for message text elements. LINE messages typically use
-	// specific resource IDs for message content.
+	// LINE uses several resource IDs for message content across versions:
+	//   chat_ui_message_text, message_text, chathistory_message
 	msgElements := finder.All(func(e *core.Element) bool {
 		return strings.Contains(e.ResourceID, "message_text") ||
 			strings.Contains(e.ResourceID, "chathistory_message")

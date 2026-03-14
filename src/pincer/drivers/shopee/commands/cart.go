@@ -4,9 +4,10 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
-	"github.com/prathan/pincer/src/pincer/drivers/shopee"
 	"github.com/prathan/pincer/src/pincer/core"
+	"github.com/prathan/pincer/src/pincer/drivers/shopee"
 )
 
 // CartItem represents an item in the Shopee shopping cart.
@@ -26,6 +27,7 @@ type CartListResult struct {
 }
 
 // CartList executes the `shopee cart list` command.
+// Scrolls down to collect all cart items, not just the first visible page.
 func CartList(ctx context.Context, driver *shopee.ShopeeDriver) (*CartListResult, error) {
 	if err := driver.EnsureAppRunning(ctx); err != nil {
 		return nil, fmt.Errorf("ensure app running: %w", err)
@@ -35,12 +37,39 @@ func CartList(ctx context.Context, driver *shopee.ShopeeDriver) (*CartListResult
 		return nil, fmt.Errorf("navigate to cart: %w", err)
 	}
 
-	finder, err := driver.Workflow.FreshDump(ctx)
-	if err != nil {
-		return nil, err
+	// Collect items across multiple screens by scrolling.
+	var items []CartItem
+	seen := map[string]bool{}
+	const maxScrolls = 10
+
+	for scroll := 0; scroll <= maxScrolls; scroll++ {
+		finder, err := driver.Workflow.FreshDump(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		newCount := 0
+		for _, item := range parseCartItems(finder) {
+			key := item.Shop + "|" + item.Name
+			if !seen[key] {
+				seen[key] = true
+				items = append(items, item)
+				newCount++
+			}
+		}
+
+		if newCount == 0 {
+			break
+		}
+
+		if scroll < maxScrolls {
+			if err := driver.Dev.Swipe(ctx, 540, 1600, 540, 800, 300); err != nil {
+				return nil, err
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
 	}
 
-	items := parseCartItems(finder)
 	return &CartListResult{
 		Items: items,
 		Count: len(items),

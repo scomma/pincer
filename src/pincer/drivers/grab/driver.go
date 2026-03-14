@@ -108,7 +108,9 @@ func (b *GrabDriver) NavigateToFoodHome(ctx context.Context) error {
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		finder, err := b.Workflow.FreshDump(ctx)
 		if err != nil {
-			return err
+			// Transient ADB error — retry after a brief pause.
+			time.Sleep(1 * time.Second)
+			continue
 		}
 
 		screen := DetectScreen(finder)

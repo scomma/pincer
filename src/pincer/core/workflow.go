@@ -107,7 +107,13 @@ func (w *Workflow) Retry(op func() error, attempts int, delay time.Duration) err
 }
 
 // EnsureApp launches the app if it's not already in the foreground.
+// It first wakes the screen if the display is off.
 func (w *Workflow) EnsureApp(ctx context.Context, pkg string, timeout time.Duration) error {
+	// Wake the screen — commands can't proceed with the display off.
+	if err := w.Dev.WakeScreen(ctx); err != nil {
+		return fmt.Errorf("waking screen: %w", err)
+	}
+
 	current, err := w.Dev.CurrentPackage(ctx)
 	if err == nil && current == pkg {
 		return nil

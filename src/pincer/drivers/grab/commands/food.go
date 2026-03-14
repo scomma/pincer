@@ -25,6 +25,7 @@ type FoodSearchResult struct {
 
 // FoodSearch executes the `grab food search` command.
 // It navigates to the food home, optionally searches, and parses restaurant cards.
+// Scrolls down to collect restaurants beyond the first visible page.
 func FoodSearch(ctx context.Context, driver *grab.GrabDriver, query string) (*FoodSearchResult, error) {
 	if err := driver.EnsureAppRunning(ctx); err != nil {
 		return nil, fmt.Errorf("ensure app running: %w", err)
@@ -38,15 +39,42 @@ func FoodSearch(ctx context.Context, driver *grab.GrabDriver, query string) (*Fo
 		if err := performSearch(ctx, driver, query); err != nil {
 			return nil, err
 		}
-		time.Sleep(2 * time.Second) // Wait for results to load
+		// Wait for search results to appear instead of a fixed sleep.
+		_, _ = driver.Workflow.WaitForElement(ctx, 5*time.Second,
+			core.HasID("com.grabtaxi.passenger:id/duxton_card"))
 	}
 
-	finder, err := driver.Workflow.FreshDump(ctx)
-	if err != nil {
-		return nil, err
-	}
+	// Collect restaurants across multiple screens by scrolling.
+	var restaurants []Restaurant
+	seen := map[string]bool{}
+	const maxScrolls = 5
 
-	restaurants := parseRestaurantCards(finder)
+	for scroll := 0; scroll <= maxScrolls; scroll++ {
+		finder, err := driver.Workflow.FreshDump(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		newCount := 0
+		for _, r := range parseRestaurantCards(finder) {
+			if !seen[r.Name] {
+				seen[r.Name] = true
+				restaurants = append(restaurants, r)
+				newCount++
+			}
+		}
+
+		if newCount == 0 {
+			break
+		}
+
+		if scroll < maxScrolls {
+			if err := driver.Dev.Swipe(ctx, 540, 1600, 540, 800, 300); err != nil {
+				return nil, err
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
 
 	return &FoodSearchResult{
 		Restaurants: restaurants,
@@ -55,7 +83,6 @@ func FoodSearch(ctx context.Context, driver *grab.GrabDriver, query string) (*Fo
 }
 
 func performSearch(ctx context.Context, driver *grab.GrabDriver, query string) error {
-	// Tap the search bar
 	finder, err := driver.Workflow.FreshDump(ctx)
 	if err != nil {
 		return err
@@ -73,14 +100,16 @@ func performSearch(ctx context.Context, driver *grab.GrabDriver, query string) e
 	if err := driver.Dev.Tap(ctx, c.X, c.Y); err != nil {
 		return err
 	}
-	time.Sleep(1 * time.Second)
 
-	// Type the query
+	// Wait for the search input field to be ready rather than a fixed sleep.
+	_, _ = driver.Workflow.WaitForElement(ctx, 3*time.Second, func(e *core.Element) bool {
+		return e.Focused && e.Class == "android.widget.EditText"
+	})
+
 	if err := driver.Dev.TypeText(ctx, query); err != nil {
 		return err
 	}
 
-	// Press Enter to search
 	return driver.Dev.KeyEvent(ctx, "KEYCODE_ENTER")
 }
 

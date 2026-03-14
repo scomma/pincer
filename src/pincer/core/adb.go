@@ -18,6 +18,8 @@ type Device interface {
 	Screenshot(ctx context.Context) ([]byte, error)
 	LaunchApp(ctx context.Context, pkg string) error
 	CurrentPackage(ctx context.Context) (string, error)
+	IsScreenOn(ctx context.Context) (bool, error)
+	WakeScreen(ctx context.Context) error
 }
 
 // ADB handles communication with an Android device via adb.
@@ -130,6 +132,34 @@ func (a *ADB) CurrentPackage(ctx context.Context) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("could not determine current package from: %s", out)
+}
+
+// IsScreenOn checks whether the device display is currently on.
+func (a *ADB) IsScreenOn(ctx context.Context) (bool, error) {
+	out, err := a.Shell(ctx, "dumpsys power | grep 'Display Power'")
+	if err != nil {
+		return false, err
+	}
+	return strings.Contains(out, "state=ON"), nil
+}
+
+// WakeScreen turns the display on if it is off.
+func (a *ADB) WakeScreen(ctx context.Context) error {
+	on, err := a.IsScreenOn(ctx)
+	if err != nil {
+		return err
+	}
+	if on {
+		return nil
+	}
+	// WAKEUP turns the screen on without toggling like POWER would.
+	if err := a.KeyEvent(ctx, "KEYCODE_WAKEUP"); err != nil {
+		return err
+	}
+	// Brief pause to let the display power on.
+	time.Sleep(500 * time.Millisecond)
+	// Dismiss the lock screen by swiping up (works on swipe-to-unlock).
+	return a.Swipe(ctx, 540, 1600, 540, 800, 300)
 }
 
 // WaitForDevice blocks until a device is connected or the context expires.
