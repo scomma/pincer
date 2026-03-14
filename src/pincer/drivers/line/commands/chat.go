@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/prathan/pincer/src/pincer/bridges/line"
+	"github.com/prathan/pincer/src/pincer/drivers/line"
 	"github.com/prathan/pincer/src/pincer/core"
 )
 
@@ -27,16 +27,16 @@ type ChatListResult struct {
 }
 
 // ChatList executes the `line chat list` command.
-func ChatList(ctx context.Context, bridge *line.LineBridge, unreadOnly bool, limit int) (*ChatListResult, error) {
-	if err := bridge.EnsureAppRunning(ctx); err != nil {
+func ChatList(ctx context.Context, driver *line.LineDriver, unreadOnly bool, limit int) (*ChatListResult, error) {
+	if err := driver.EnsureAppRunning(ctx); err != nil {
 		return nil, fmt.Errorf("ensure app running: %w", err)
 	}
 
-	if err := bridge.NavigateToChats(ctx); err != nil {
+	if err := driver.NavigateToChats(ctx); err != nil {
 		return nil, fmt.Errorf("navigate to chats: %w", err)
 	}
 
-	finder, err := bridge.Workflow.FreshDump(ctx)
+	finder, err := driver.Workflow.FreshDump(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -152,35 +152,35 @@ type ChatReadResult struct {
 }
 
 // ChatRead executes the `line chat read` command.
-func ChatRead(ctx context.Context, bridge *line.LineBridge, chatName string, limit int) (*ChatReadResult, error) {
-	if err := bridge.EnsureAppRunning(ctx); err != nil {
+func ChatRead(ctx context.Context, driver *line.LineDriver, chatName string, limit int) (*ChatReadResult, error) {
+	if err := driver.EnsureAppRunning(ctx); err != nil {
 		return nil, fmt.Errorf("ensure app running: %w", err)
 	}
 
-	if err := bridge.NavigateToChats(ctx); err != nil {
+	if err := driver.NavigateToChats(ctx); err != nil {
 		return nil, fmt.Errorf("navigate to chats: %w", err)
 	}
 
 	// Find and tap the chat
-	finder, err := bridge.Workflow.FreshDump(ctx)
+	finder, err := driver.Workflow.FreshDump(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	chatEl := finder.ByText(chatName, true)
 	if chatEl == nil {
-		return nil, core.NewBridgeError("chat_not_found", "Chat '"+chatName+"' not found in visible list")
+		return nil, core.NewDriverError("chat_not_found", "Chat '"+chatName+"' not found in visible list")
 	}
 
 	c := chatEl.Center()
-	if err := bridge.Dev.Tap(ctx, c.X, c.Y); err != nil {
+	if err := driver.Dev.Tap(ctx, c.X, c.Y); err != nil {
 		return nil, err
 	}
 
 	// Wait for chat detail to load
 	time.Sleep(2 * time.Second)
 
-	finder, err = bridge.Workflow.FreshDump(ctx)
+	finder, err = driver.Workflow.FreshDump(ctx)
 	if err != nil {
 		return nil, err
 	}

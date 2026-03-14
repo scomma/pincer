@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/prathan/pincer/src/pincer/bridges/line"
-	"github.com/prathan/pincer/src/pincer/bridges/line/commands"
+	"github.com/prathan/pincer/src/pincer/drivers/line"
+	"github.com/prathan/pincer/src/pincer/drivers/line/commands"
 	"github.com/prathan/pincer/src/pincer/core"
 	"github.com/spf13/cobra"
 )
@@ -30,13 +30,13 @@ var lineChatListCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
 		defer cancel()
 
-		bridge, err := line.NewLineBridge(newADB())
+		driver, err := line.NewLineDriver(newADB())
 		if err != nil {
 			outputError(err)
 			return nil
 		}
 
-		result, err := commands.ChatList(ctx, bridge, unread, limit)
+		result, err := commands.ChatList(ctx, driver, unread, limit)
 		if err != nil {
 			outputError(err)
 			return nil
@@ -55,20 +55,20 @@ var lineChatReadCmd = &cobra.Command{
 		limit, _ := cmd.Flags().GetInt("limit")
 
 		if chatName == "" {
-			outputError(core.NewBridgeError("missing_argument", "--chat is required"))
+			outputError(core.NewDriverError("missing_argument", "--chat is required"))
 			return nil
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
 		defer cancel()
 
-		bridge, err := line.NewLineBridge(newADB())
+		driver, err := line.NewLineDriver(newADB())
 		if err != nil {
 			outputError(err)
 			return nil
 		}
 
-		result, err := commands.ChatRead(ctx, bridge, chatName, limit)
+		result, err := commands.ChatRead(ctx, driver, chatName, limit)
 		if err != nil {
 			outputError(err)
 			return nil

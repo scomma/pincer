@@ -16,7 +16,7 @@ var (
 
 var rootCmd = &cobra.Command{
 	Use:   "pincer",
-	Short: "App bridge framework for Android automation",
+	Short: "App driver framework for Android automation",
 	Long:  "Pincer automates Android apps via accessibility APIs, exposing high-level domain commands as a CLI.",
 }
 
@@ -42,7 +42,7 @@ func outputJSON(data any) {
 }
 
 func outputError(err error) {
-	if be, ok := err.(*core.BridgeError); ok {
+	if be, ok := err.(*core.DriverError); ok {
 		outputJSON(core.NewErrorResponse(be))
 	} else {
 		outputJSON(core.ErrorResponse{

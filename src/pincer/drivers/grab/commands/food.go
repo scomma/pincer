@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/prathan/pincer/src/pincer/bridges/grab"
+	"github.com/prathan/pincer/src/pincer/drivers/grab"
 	"github.com/prathan/pincer/src/pincer/core"
 )
 
@@ -25,23 +25,23 @@ type FoodSearchResult struct {
 
 // FoodSearch executes the `grab food search` command.
 // It navigates to the food home, optionally searches, and parses restaurant cards.
-func FoodSearch(ctx context.Context, bridge *grab.GrabBridge, query string) (*FoodSearchResult, error) {
-	if err := bridge.EnsureAppRunning(ctx); err != nil {
+func FoodSearch(ctx context.Context, driver *grab.GrabDriver, query string) (*FoodSearchResult, error) {
+	if err := driver.EnsureAppRunning(ctx); err != nil {
 		return nil, fmt.Errorf("ensure app running: %w", err)
 	}
 
-	if err := bridge.NavigateToFoodHome(ctx); err != nil {
+	if err := driver.NavigateToFoodHome(ctx); err != nil {
 		return nil, fmt.Errorf("navigate to food home: %w", err)
 	}
 
 	if query != "" {
-		if err := performSearch(ctx, bridge, query); err != nil {
+		if err := performSearch(ctx, driver, query); err != nil {
 			return nil, err
 		}
 		time.Sleep(2 * time.Second) // Wait for results to load
 	}
 
-	finder, err := bridge.Workflow.FreshDump(ctx)
+	finder, err := driver.Workflow.FreshDump(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -54,9 +54,9 @@ func FoodSearch(ctx context.Context, bridge *grab.GrabBridge, query string) (*Fo
 	}, nil
 }
 
-func performSearch(ctx context.Context, bridge *grab.GrabBridge, query string) error {
+func performSearch(ctx context.Context, driver *grab.GrabDriver, query string) error {
 	// Tap the search bar
-	finder, err := bridge.Workflow.FreshDump(ctx)
+	finder, err := driver.Workflow.FreshDump(ctx)
 	if err != nil {
 		return err
 	}
@@ -70,18 +70,18 @@ func performSearch(ctx context.Context, bridge *grab.GrabBridge, query string) e
 	}
 
 	c := searchBar.Center()
-	if err := bridge.Dev.Tap(ctx, c.X, c.Y); err != nil {
+	if err := driver.Dev.Tap(ctx, c.X, c.Y); err != nil {
 		return err
 	}
 	time.Sleep(1 * time.Second)
 
 	// Type the query
-	if err := bridge.Dev.TypeText(ctx, query); err != nil {
+	if err := driver.Dev.TypeText(ctx, query); err != nil {
 		return err
 	}
 
 	// Press Enter to search
-	return bridge.Dev.KeyEvent(ctx, "KEYCODE_ENTER")
+	return driver.Dev.KeyEvent(ctx, "KEYCODE_ENTER")
 }
 
 // parseRestaurantCards extracts restaurant info from duxton_card elements.

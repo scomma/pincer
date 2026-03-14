@@ -23,34 +23,34 @@ const (
 	ScreenUnknown Screen = "UNKNOWN"
 )
 
-// ShopeeBridge implements the Bridge interface for the Shopee app.
-type ShopeeBridge struct {
+// ShopeeDriver implements the Driver interface for the Shopee app.
+type ShopeeDriver struct {
 	Dev      core.Device
 	Workflow *core.Workflow
 	Cache    *core.Cache
 }
 
-func NewShopeeBridge(dev core.Device) (*ShopeeBridge, error) {
+func NewShopeeDriver(dev core.Device) (*ShopeeDriver, error) {
 	cache, err := core.NewCache("shopee")
 	if err != nil {
 		return nil, err
 	}
-	return &ShopeeBridge{
+	return &ShopeeDriver{
 		Dev:      dev,
 		Workflow: core.NewWorkflow(dev),
 		Cache:    cache,
 	}, nil
 }
 
-func (b *ShopeeBridge) PackageName() string {
+func (b *ShopeeDriver) PackageName() string {
 	return PackageName
 }
 
-func (b *ShopeeBridge) EnsureAppRunning(ctx context.Context) error {
+func (b *ShopeeDriver) EnsureAppRunning(ctx context.Context) error {
 	return b.Workflow.EnsureApp(ctx, PackageName, AppTimeout)
 }
 
-func (b *ShopeeBridge) EnsureLoggedIn(ctx context.Context) (bool, error) {
+func (b *ShopeeDriver) EnsureLoggedIn(ctx context.Context) (bool, error) {
 	finder, err := b.Workflow.FreshDump(ctx)
 	if err != nil {
 		return false, err
@@ -79,7 +79,7 @@ func DetectScreen(finder *core.ElementFinder) Screen {
 }
 
 // NavigateToCart navigates to the shopping cart.
-func (b *ShopeeBridge) NavigateToCart(ctx context.Context) error {
+func (b *ShopeeDriver) NavigateToCart(ctx context.Context) error {
 	finder, err := b.Workflow.FreshDump(ctx)
 	if err != nil {
 		return err

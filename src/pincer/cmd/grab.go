@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/prathan/pincer/src/pincer/bridges/grab"
-	"github.com/prathan/pincer/src/pincer/bridges/grab/commands"
+	"github.com/prathan/pincer/src/pincer/drivers/grab"
+	"github.com/prathan/pincer/src/pincer/drivers/grab/commands"
 	"github.com/prathan/pincer/src/pincer/core"
 	"github.com/spf13/cobra"
 )
@@ -29,13 +29,13 @@ var grabFoodSearchCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
 		defer cancel()
 
-		bridge, err := grab.NewGrabBridge(newADB())
+		driver, err := grab.NewGrabDriver(newADB())
 		if err != nil {
 			outputError(err)
 			return nil
 		}
 
-		result, err := commands.FoodSearch(ctx, bridge, query)
+		result, err := commands.FoodSearch(ctx, driver, query)
 		if err != nil {
 			outputError(err)
 			return nil
@@ -58,13 +58,13 @@ var grabAuthStatusCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
 		defer cancel()
 
-		bridge, err := grab.NewGrabBridge(newADB())
+		driver, err := grab.NewGrabDriver(newADB())
 		if err != nil {
 			outputError(err)
 			return nil
 		}
 
-		result, err := commands.AuthStatus(ctx, bridge)
+		result, err := commands.AuthStatus(ctx, driver)
 		if err != nil {
 			outputError(err)
 			return nil

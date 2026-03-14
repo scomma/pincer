@@ -26,35 +26,35 @@ const (
 	ScreenUnknown     Screen = "UNKNOWN"
 )
 
-// GrabBridge implements the Bridge interface for the Grab app.
-type GrabBridge struct {
+// GrabDriver implements the Driver interface for the Grab app.
+type GrabDriver struct {
 	Dev      core.Device
 	Workflow *core.Workflow
 	Cache    *core.Cache
 }
 
-// NewGrabBridge creates a new GrabBridge.
-func NewGrabBridge(dev core.Device) (*GrabBridge, error) {
+// NewGrabDriver creates a new GrabDriver.
+func NewGrabDriver(dev core.Device) (*GrabDriver, error) {
 	cache, err := core.NewCache("grab")
 	if err != nil {
 		return nil, err
 	}
-	return &GrabBridge{
+	return &GrabDriver{
 		Dev:      dev,
 		Workflow: core.NewWorkflow(dev),
 		Cache:    cache,
 	}, nil
 }
 
-func (b *GrabBridge) PackageName() string {
+func (b *GrabDriver) PackageName() string {
 	return PackageName
 }
 
-func (b *GrabBridge) EnsureAppRunning(ctx context.Context) error {
+func (b *GrabDriver) EnsureAppRunning(ctx context.Context) error {
 	return b.Workflow.EnsureApp(ctx, PackageName, AppTimeout)
 }
 
-func (b *GrabBridge) EnsureLoggedIn(ctx context.Context) (bool, error) {
+func (b *GrabDriver) EnsureLoggedIn(ctx context.Context) (bool, error) {
 	finder, err := b.Workflow.FreshDump(ctx)
 	if err != nil {
 		return false, err
@@ -103,7 +103,7 @@ func DetectScreen(finder *core.ElementFinder) Screen {
 }
 
 // NavigateToFoodHome navigates from wherever we are to the Food home screen.
-func (b *GrabBridge) NavigateToFoodHome(ctx context.Context) error {
+func (b *GrabDriver) NavigateToFoodHome(ctx context.Context) error {
 	const maxRetries = 3
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		finder, err := b.Workflow.FreshDump(ctx)

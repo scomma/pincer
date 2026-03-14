@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/prathan/pincer/src/pincer/bridges/grab"
-	grabcmd "github.com/prathan/pincer/src/pincer/bridges/grab/commands"
-	"github.com/prathan/pincer/src/pincer/bridges/line"
-	linecmd "github.com/prathan/pincer/src/pincer/bridges/line/commands"
-	"github.com/prathan/pincer/src/pincer/bridges/shopee"
-	shopeecmd "github.com/prathan/pincer/src/pincer/bridges/shopee/commands"
+	"github.com/prathan/pincer/src/pincer/drivers/grab"
+	grabcmd "github.com/prathan/pincer/src/pincer/drivers/grab/commands"
+	"github.com/prathan/pincer/src/pincer/drivers/line"
+	linecmd "github.com/prathan/pincer/src/pincer/drivers/line/commands"
+	"github.com/prathan/pincer/src/pincer/drivers/shopee"
+	shopeecmd "github.com/prathan/pincer/src/pincer/drivers/shopee/commands"
 	"github.com/prathan/pincer/src/pincer/core"
 )
 
@@ -30,12 +30,12 @@ func TestAIAssistantLunchScenario(t *testing.T) {
 
 	t.Run("grab_food_search", func(t *testing.T) {
 		mock := core.NewMockDevice("fixtures/grab/food_results.xml", grab.PackageName)
-		bridge, err := grab.NewGrabBridge(mock)
+		driver, err := grab.NewGrabDriver(mock)
 		if err != nil {
-			t.Fatalf("creating bridge: %v", err)
+			t.Fatalf("creating driver: %v", err)
 		}
 
-		result, err := grabcmd.FoodSearch(ctx, bridge, "")
+		result, err := grabcmd.FoodSearch(ctx, driver, "")
 		if err != nil {
 			t.Fatalf("food search: %v", err)
 		}
@@ -73,12 +73,12 @@ func TestAIAssistantLunchScenario(t *testing.T) {
 
 	t.Run("line_chat_list_unread", func(t *testing.T) {
 		mock := core.NewMockDevice("fixtures/line/chats.xml", line.PackageName)
-		bridge, err := line.NewLineBridge(mock)
+		driver, err := line.NewLineDriver(mock)
 		if err != nil {
-			t.Fatalf("creating bridge: %v", err)
+			t.Fatalf("creating driver: %v", err)
 		}
 
-		result, err := linecmd.ChatList(ctx, bridge, true, 5)
+		result, err := linecmd.ChatList(ctx, driver, true, 5)
 		if err != nil {
 			t.Fatalf("chat list: %v", err)
 		}
@@ -108,12 +108,12 @@ func TestAIAssistantLunchScenario(t *testing.T) {
 
 	t.Run("shopee_cart_list", func(t *testing.T) {
 		mock := core.NewMockDevice("fixtures/shopee/cart.xml", shopee.PackageName)
-		bridge, err := shopee.NewShopeeBridge(mock)
+		driver, err := shopee.NewShopeeDriver(mock)
 		if err != nil {
-			t.Fatalf("creating bridge: %v", err)
+			t.Fatalf("creating driver: %v", err)
 		}
 
-		result, err := shopeecmd.CartList(ctx, bridge)
+		result, err := shopeecmd.CartList(ctx, driver)
 		if err != nil {
 			t.Fatalf("cart list: %v", err)
 		}
@@ -143,12 +143,12 @@ func TestAIAssistantLunchScenario(t *testing.T) {
 
 	t.Run("grab_auth_status", func(t *testing.T) {
 		mock := core.NewMockDevice("fixtures/grab/food_results.xml", grab.PackageName)
-		bridge, err := grab.NewGrabBridge(mock)
+		driver, err := grab.NewGrabDriver(mock)
 		if err != nil {
-			t.Fatalf("creating bridge: %v", err)
+			t.Fatalf("creating driver: %v", err)
 		}
 
-		result, err := grabcmd.AuthStatus(ctx, bridge)
+		result, err := grabcmd.AuthStatus(ctx, driver)
 		if err != nil {
 			t.Fatalf("auth status: %v", err)
 		}
@@ -167,12 +167,12 @@ func TestAIAssistantLunchScenario(t *testing.T) {
 func TestAIAssistantSearchWithQuery(t *testing.T) {
 	ctx := context.Background()
 	mock := core.NewMockDevice("fixtures/grab/food_results.xml", grab.PackageName)
-	bridge, err := grab.NewGrabBridge(mock)
+	driver, err := grab.NewGrabDriver(mock)
 	if err != nil {
-		t.Fatalf("creating bridge: %v", err)
+		t.Fatalf("creating driver: %v", err)
 	}
 
-	result, err := grabcmd.FoodSearch(ctx, bridge, "pad thai")
+	result, err := grabcmd.FoodSearch(ctx, driver, "pad thai")
 	if err != nil {
 		t.Fatalf("food search: %v", err)
 	}
@@ -209,12 +209,12 @@ func TestAIAssistantLineChatRead(t *testing.T) {
 	// message elements (chats.xml doesn't have message_text IDs).
 	// This is expected — in production, the fixture would change after the tap.
 	mock := core.NewMockDevice("fixtures/line/chats.xml", line.PackageName)
-	bridge, err := line.NewLineBridge(mock)
+	driver, err := line.NewLineDriver(mock)
 	if err != nil {
-		t.Fatalf("creating bridge: %v", err)
+		t.Fatalf("creating driver: %v", err)
 	}
 
-	result, err := linecmd.ChatRead(ctx, bridge, "Family Direct", 10)
+	result, err := linecmd.ChatRead(ctx, driver, "Family Direct", 10)
 	if err != nil {
 		t.Fatalf("chat read: %v", err)
 	}
@@ -236,8 +236,8 @@ func TestAIAssistantLineChatRead(t *testing.T) {
 
 // TestAIAssistantErrorHandling simulates how errors surface to the AI.
 func TestAIAssistantErrorHandling(t *testing.T) {
-	t.Run("bridge_error_json", func(t *testing.T) {
-		err := core.NewBridgeError("not_logged_in", "App requires login. Run: pincer grab auth login")
+	t.Run("driver_error_json", func(t *testing.T) {
+		err := core.NewDriverError("not_logged_in", "App requires login. Run: pincer grab auth login")
 		resp := core.NewErrorResponse(err)
 		jsonBytes, _ := json.MarshalIndent(resp, "", "  ")
 		t.Logf("AI receives error:\n%s", string(jsonBytes))
@@ -253,24 +253,24 @@ func TestAIAssistantErrorHandling(t *testing.T) {
 	t.Run("chat_not_found", func(t *testing.T) {
 		ctx := context.Background()
 		mock := core.NewMockDevice("fixtures/line/chats.xml", line.PackageName)
-		bridge, err := line.NewLineBridge(mock)
+		driver, err := line.NewLineDriver(mock)
 		if err != nil {
-			t.Fatalf("creating bridge: %v", err)
+			t.Fatalf("creating driver: %v", err)
 		}
 
-		_, err = linecmd.ChatRead(ctx, bridge, "NonexistentChat12345", 10)
+		_, err = linecmd.ChatRead(ctx, driver, "NonexistentChat12345", 10)
 		if err == nil {
 			t.Fatal("expected error for nonexistent chat")
 		}
 
-		// Verify the error is a BridgeError with a meaningful code
-		if be, ok := err.(*core.BridgeError); ok {
+		// Verify the error is a DriverError with a meaningful code
+		if be, ok := err.(*core.DriverError); ok {
 			t.Logf("AI receives error: code=%q message=%q", be.Code, be.Message)
 			if be.Code != "chat_not_found" {
 				t.Errorf("expected error code 'chat_not_found', got %q", be.Code)
 			}
 		} else {
-			t.Logf("Got non-bridge error (acceptable): %v", err)
+			t.Logf("Got non-driver error (acceptable): %v", err)
 		}
 	})
 }
@@ -288,7 +288,7 @@ func TestAIAssistantAllCommandsCoverage(t *testing.T) {
 			name: "pincer grab food search",
 			run: func() (any, error) {
 				mock := core.NewMockDevice("fixtures/grab/food_results.xml", grab.PackageName)
-				b, _ := grab.NewGrabBridge(mock)
+				b, _ := grab.NewGrabDriver(mock)
 				return grabcmd.FoodSearch(ctx, b, "")
 			},
 		},
@@ -296,7 +296,7 @@ func TestAIAssistantAllCommandsCoverage(t *testing.T) {
 			name: "pincer grab food search --query lunch",
 			run: func() (any, error) {
 				mock := core.NewMockDevice("fixtures/grab/food_results.xml", grab.PackageName)
-				b, _ := grab.NewGrabBridge(mock)
+				b, _ := grab.NewGrabDriver(mock)
 				return grabcmd.FoodSearch(ctx, b, "lunch")
 			},
 		},
@@ -304,7 +304,7 @@ func TestAIAssistantAllCommandsCoverage(t *testing.T) {
 			name: "pincer grab auth status",
 			run: func() (any, error) {
 				mock := core.NewMockDevice("fixtures/grab/food_results.xml", grab.PackageName)
-				b, _ := grab.NewGrabBridge(mock)
+				b, _ := grab.NewGrabDriver(mock)
 				return grabcmd.AuthStatus(ctx, b)
 			},
 		},
@@ -312,7 +312,7 @@ func TestAIAssistantAllCommandsCoverage(t *testing.T) {
 			name: "pincer line chat list",
 			run: func() (any, error) {
 				mock := core.NewMockDevice("fixtures/line/chats.xml", line.PackageName)
-				b, _ := line.NewLineBridge(mock)
+				b, _ := line.NewLineDriver(mock)
 				return linecmd.ChatList(ctx, b, false, 0)
 			},
 		},
@@ -320,7 +320,7 @@ func TestAIAssistantAllCommandsCoverage(t *testing.T) {
 			name: "pincer line chat list --unread",
 			run: func() (any, error) {
 				mock := core.NewMockDevice("fixtures/line/chats.xml", line.PackageName)
-				b, _ := line.NewLineBridge(mock)
+				b, _ := line.NewLineDriver(mock)
 				return linecmd.ChatList(ctx, b, true, 0)
 			},
 		},
@@ -328,7 +328,7 @@ func TestAIAssistantAllCommandsCoverage(t *testing.T) {
 			name: "pincer line chat list --unread --limit 3",
 			run: func() (any, error) {
 				mock := core.NewMockDevice("fixtures/line/chats.xml", line.PackageName)
-				b, _ := line.NewLineBridge(mock)
+				b, _ := line.NewLineDriver(mock)
 				return linecmd.ChatList(ctx, b, true, 3)
 			},
 		},
@@ -336,7 +336,7 @@ func TestAIAssistantAllCommandsCoverage(t *testing.T) {
 			name: "pincer line chat read --chat Family Direct",
 			run: func() (any, error) {
 				mock := core.NewMockDevice("fixtures/line/chats.xml", line.PackageName)
-				b, _ := line.NewLineBridge(mock)
+				b, _ := line.NewLineDriver(mock)
 				return linecmd.ChatRead(ctx, b, "Family Direct", 20)
 			},
 		},
@@ -344,7 +344,7 @@ func TestAIAssistantAllCommandsCoverage(t *testing.T) {
 			name: "pincer shopee cart list",
 			run: func() (any, error) {
 				mock := core.NewMockDevice("fixtures/shopee/cart.xml", shopee.PackageName)
-				b, _ := shopee.NewShopeeBridge(mock)
+				b, _ := shopee.NewShopeeDriver(mock)
 				return shopeecmd.CartList(ctx, b)
 			},
 		},

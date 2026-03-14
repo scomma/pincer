@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/prathan/pincer/src/pincer/bridges/shopee"
+	"github.com/prathan/pincer/src/pincer/drivers/shopee"
 	"github.com/prathan/pincer/src/pincer/core"
 )
 
@@ -26,16 +26,16 @@ type CartListResult struct {
 }
 
 // CartList executes the `shopee cart list` command.
-func CartList(ctx context.Context, bridge *shopee.ShopeeBridge) (*CartListResult, error) {
-	if err := bridge.EnsureAppRunning(ctx); err != nil {
+func CartList(ctx context.Context, driver *shopee.ShopeeDriver) (*CartListResult, error) {
+	if err := driver.EnsureAppRunning(ctx); err != nil {
 		return nil, fmt.Errorf("ensure app running: %w", err)
 	}
 
-	if err := bridge.NavigateToCart(ctx); err != nil {
+	if err := driver.NavigateToCart(ctx); err != nil {
 		return nil, fmt.Errorf("navigate to cart: %w", err)
 	}
 
-	finder, err := bridge.Workflow.FreshDump(ctx)
+	finder, err := driver.Workflow.FreshDump(ctx)
 	if err != nil {
 		return nil, err
 	}

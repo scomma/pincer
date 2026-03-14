@@ -21,34 +21,34 @@ const (
 	ScreenUnknown    Screen = "UNKNOWN"
 )
 
-// LineBridge implements the Bridge interface for the LINE app.
-type LineBridge struct {
+// LineDriver implements the Driver interface for the LINE app.
+type LineDriver struct {
 	Dev      core.Device
 	Workflow *core.Workflow
 	Cache    *core.Cache
 }
 
-func NewLineBridge(dev core.Device) (*LineBridge, error) {
+func NewLineDriver(dev core.Device) (*LineDriver, error) {
 	cache, err := core.NewCache("line")
 	if err != nil {
 		return nil, err
 	}
-	return &LineBridge{
+	return &LineDriver{
 		Dev:      dev,
 		Workflow: core.NewWorkflow(dev),
 		Cache:    cache,
 	}, nil
 }
 
-func (b *LineBridge) PackageName() string {
+func (b *LineDriver) PackageName() string {
 	return PackageName
 }
 
-func (b *LineBridge) EnsureAppRunning(ctx context.Context) error {
+func (b *LineDriver) EnsureAppRunning(ctx context.Context) error {
 	return b.Workflow.EnsureApp(ctx, PackageName, AppTimeout)
 }
 
-func (b *LineBridge) EnsureLoggedIn(ctx context.Context) (bool, error) {
+func (b *LineDriver) EnsureLoggedIn(ctx context.Context) (bool, error) {
 	finder, err := b.Workflow.FreshDump(ctx)
 	if err != nil {
 		return false, err
@@ -71,7 +71,7 @@ func DetectScreen(finder *core.ElementFinder) Screen {
 }
 
 // NavigateToChats navigates to the chat list.
-func (b *LineBridge) NavigateToChats(ctx context.Context) error {
+func (b *LineDriver) NavigateToChats(ctx context.Context) error {
 	const maxRetries = 3
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		finder, err := b.Workflow.FreshDump(ctx)

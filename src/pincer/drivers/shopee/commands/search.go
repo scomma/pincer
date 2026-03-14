@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/prathan/pincer/src/pincer/bridges/shopee"
+	"github.com/prathan/pincer/src/pincer/drivers/shopee"
 	"github.com/prathan/pincer/src/pincer/core"
 )
 
@@ -25,13 +25,13 @@ type SearchResult struct {
 }
 
 // Search executes the `shopee search` command.
-func Search(ctx context.Context, bridge *shopee.ShopeeBridge, query string) (*SearchResult, error) {
-	if err := bridge.EnsureAppRunning(ctx); err != nil {
+func Search(ctx context.Context, driver *shopee.ShopeeDriver, query string) (*SearchResult, error) {
+	if err := driver.EnsureAppRunning(ctx); err != nil {
 		return nil, fmt.Errorf("ensure app running: %w", err)
 	}
 
 	// Tap the search bar on home
-	finder, err := bridge.Workflow.FreshDump(ctx)
+	finder, err := driver.Workflow.FreshDump(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -45,24 +45,24 @@ func Search(ctx context.Context, bridge *shopee.ShopeeBridge, query string) (*Se
 		})
 	}
 	if searchBar == nil {
-		return nil, core.NewBridgeError("search_not_found", "Could not find search bar")
+		return nil, core.NewDriverError("search_not_found", "Could not find search bar")
 	}
 
 	c := searchBar.Center()
-	if err := bridge.Dev.Tap(ctx, c.X, c.Y); err != nil {
+	if err := driver.Dev.Tap(ctx, c.X, c.Y); err != nil {
 		return nil, err
 	}
 	time.Sleep(1 * time.Second)
 
-	if err := bridge.Dev.TypeText(ctx, query); err != nil {
+	if err := driver.Dev.TypeText(ctx, query); err != nil {
 		return nil, err
 	}
-	if err := bridge.Dev.KeyEvent(ctx, "KEYCODE_ENTER"); err != nil {
+	if err := driver.Dev.KeyEvent(ctx, "KEYCODE_ENTER"); err != nil {
 		return nil, err
 	}
 	time.Sleep(2 * time.Second)
 
-	finder, err = bridge.Workflow.FreshDump(ctx)
+	finder, err = driver.Workflow.FreshDump(ctx)
 	if err != nil {
 		return nil, err
 	}

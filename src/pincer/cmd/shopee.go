@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/prathan/pincer/src/pincer/bridges/shopee"
-	"github.com/prathan/pincer/src/pincer/bridges/shopee/commands"
+	"github.com/prathan/pincer/src/pincer/drivers/shopee"
+	"github.com/prathan/pincer/src/pincer/drivers/shopee/commands"
 	"github.com/prathan/pincer/src/pincer/core"
 	"github.com/spf13/cobra"
 )
@@ -27,13 +27,13 @@ var shopeeCartListCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
 		defer cancel()
 
-		bridge, err := shopee.NewShopeeBridge(newADB())
+		driver, err := shopee.NewShopeeDriver(newADB())
 		if err != nil {
 			outputError(err)
 			return nil
 		}
 
-		result, err := commands.CartList(ctx, bridge)
+		result, err := commands.CartList(ctx, driver)
 		if err != nil {
 			outputError(err)
 			return nil
@@ -51,20 +51,20 @@ var shopeeSearchCmd = &cobra.Command{
 		query, _ := cmd.Flags().GetString("query")
 
 		if query == "" {
-			outputError(core.NewBridgeError("missing_argument", "--query is required"))
+			outputError(core.NewDriverError("missing_argument", "--query is required"))
 			return nil
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
 		defer cancel()
 
-		bridge, err := shopee.NewShopeeBridge(newADB())
+		driver, err := shopee.NewShopeeDriver(newADB())
 		if err != nil {
 			outputError(err)
 			return nil
 		}
 
-		result, err := commands.Search(ctx, bridge, query)
+		result, err := commands.Search(ctx, driver, query)
 		if err != nil {
 			outputError(err)
 			return nil

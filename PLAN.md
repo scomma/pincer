@@ -1,10 +1,10 @@
-# Pincer 🦀 — App Bridge Framework
+# Pincer 🦀 — App Driver Framework
 
 > Named after a crab's grip: precise, persistent, gets the job done.
 
 ## Overview
 
-Build a framework for automating Android apps via their accessibility APIs, exposing high-level domain commands as a CLI. Each app gets its own "bridge" — a module that translates intent-level commands into UI automation sequences.
+Build a framework for automating Android apps via their accessibility APIs, exposing high-level domain commands as a CLI. Each app gets its own "driver" — a module that translates intent-level commands into UI automation sequences.
 
 **Goal:** Let an LLM agent (or human) interact with apps like Grab, LINE, Shopee via simple commands like:
 
@@ -30,9 +30,9 @@ Initial scope is intentionally narrow:
 ┌─────────────────────────────────────────────────────────┐
 │                CLI (pincer <app> <command>)             │
 ├─────────────────────────────────────────────────────────┤
-│                    Bridge Framework                      │
+│                    Driver Framework                      │
 │  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐        │
-│  │ GrabBridge  │ │ LineBridge  │ │ ShopeeBridge│  ...   │
+│  │ GrabDriver  │ │ LineDriver  │ │ ShopeeDriver│  ...   │
 │  └─────────────┘ └─────────────┘ └─────────────┘        │
 ├─────────────────────────────────────────────────────────┤
 │                    Core Libraries                        │
@@ -116,14 +116,14 @@ func (w *WorkflowHelpers) ScrollUntil(match func(*UIDump) bool, limit int) error
 func (w *WorkflowHelpers) Retry(op func() error, attempts int, delay time.Duration) error
 ```
 
-Bridge implementations should evolve gradually. If stable navigation and detection patterns emerge across multiple bridges, extract them into shared screen or state abstractions later.
+Driver implementations should evolve gradually. If stable navigation and detection patterns emerge across multiple drivers, extract them into shared screen or state abstractions later.
 
-### 4. Base Bridge (`core/bridge.go`)
+### 4. Base Driver (`core/driver.go`)
 
-Abstract base class for app bridges:
+Abstract base class for app drivers:
 
 ```go
-type Bridge interface {
+type Driver interface {
     PackageName() string
     EnsureAppRunning(ctx context.Context) error
     EnsureLoggedIn(ctx context.Context) (bool, error)
@@ -183,7 +183,7 @@ Always JSON to stdout. Errors as JSON to stderr with non-zero exit.
 
 ---
 
-## Grab Bridge Specification
+## Grab Driver Specification
 
 ### Package
 `com.grabtaxi.passenger`
@@ -225,7 +225,7 @@ Always JSON to stdout. Errors as JSON to stderr with non-zero exit.
 
 ---
 
-## LINE Bridge Specification
+## LINE Driver Specification
 
 ### Package
 `jp.naver.line.android`
@@ -265,7 +265,7 @@ LINE has good accessibility support. UIAutomator works well.
 ### Error Categories
 
 ```go
-type BridgeError struct {
+type DriverError struct {
     Code    string
     Message string
 }
@@ -320,7 +320,7 @@ apps:
 ### Unit Tests
 - Element parsing from sample XML dumps
 - Workflow helper behavior
-- Bridge command parsing against fixtures
+- Driver command parsing against fixtures
 
 ### Integration Tests
 - Requires emulator or device
@@ -340,7 +340,7 @@ apps:
 ### Phase 1: Framework + Grab Read Path
 1. Core libraries (adb, elements, workflow helpers, cache)
 2. CLI scaffold
-3. GrabBridge with:
+3. GrabDriver with:
    - `pincer grab food search`
    - `pincer grab food restaurants`
    - `pincer grab food menu`
@@ -348,10 +348,10 @@ apps:
 4. Tests with fixtures
 
 ### Phase 2: LINE + Shopee Read Path
-1. LineBridge with chat commands
+1. LineDriver with chat commands
 2. `pincer line chat list`
 3. `pincer line chat read`
-4. ShopeeBridge read-only exploration
+4. ShopeeDriver read-only exploration
 5. `pincer shopee cart list`
 6. `pincer shopee orders list [--status pending|shipped|delivered]`
 7. `pincer shopee search --query TEXT [--sort price|sales]`
@@ -390,7 +390,7 @@ apps:
 - No database — flat files for state
 - No web server — CLI only for v1
 - No LLM — deterministic code paths
-- Don't introduce a formal state machine until stable cross-bridge patterns are proven
+- Don't introduce a formal state machine until stable cross-driver patterns are proven
 
 ### Repository Structure
 
@@ -407,10 +407,10 @@ pincer/
 │       │   ├── elements.go
 │       │   ├── workflow.go
 │       │   └── cache.go
-│       └── bridges/
+│       └── drivers/
 │           ├── base.go
 │           ├── grab/
-│           │   ├── bridge.go
+│           │   ├── driver.go
 │           │   └── commands/
 │           │       ├── food.go
 │           │       └── auth.go
