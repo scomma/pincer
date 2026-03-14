@@ -24,48 +24,53 @@ Output is always JSON to stdout. Errors are JSON to stderr with a non-zero exit 
 
 - Go 1.21+
 - `adb` in your PATH, connected to an Android device or emulator
-- Target apps installed on the device (Grab, LINE, Shopee)
+- Target apps installed on the device
 
 ## Install
 
 ```bash
-go install github.com/prathan/pincer/src/pincer@latest
-```
-
-Or build from source:
-
-```bash
-git clone https://github.com/prathan/pincer.git
+git clone https://github.com/scomma/pincer.git
 cd pincer
 go build -o pincer ./src/pincer
 ```
 
-## Commands
+## Discovering commands
+
+Pincer's CLI is self-documenting at every level. Run any command with `--help` to see what's available:
+
+```bash
+pincer --help                    # List all supported apps
+pincer grab --help               # List Grab domains (food, auth)
+pincer grab food --help          # List food commands
+pincer grab food search --help   # Full docs for a specific command
+```
+
+The general pattern is:
 
 ```
 pincer <app> <domain> <action> [flags]
 ```
 
-### Grab
+## Supported drivers
+
+Each driver lives in `src/pincer/drivers/<app>/` and has its own README with command reference, screen detection details, element ID quirks, fixture notes, and output examples.
+
+| Driver | App | README |
+|--------|-----|--------|
+| **grab** | Grab — food delivery, transport | [drivers/grab/README.md](src/pincer/drivers/grab/README.md) |
+| **line** | LINE — messaging | [drivers/line/README.md](src/pincer/drivers/line/README.md) |
+| **shopee** | Shopee — e-commerce | [drivers/shopee/README.md](src/pincer/drivers/shopee/README.md) |
+
+### Quick reference
 
 | Command | Description |
 |---------|-------------|
-| `pincer grab food search [--query TEXT]` | List nearby restaurants. Optional search query. |
-| `pincer grab auth status` | Check if logged in. Returns screen name. |
-
-### LINE
-
-| Command | Description |
-|---------|-------------|
-| `pincer line chat list [--unread] [--limit N]` | List chats with last message, unread count, member count. |
-| `pincer line chat read --chat NAME [--limit N]` | Open a chat and read messages. Exact name match. |
-
-### Shopee
-
-| Command | Description |
-|---------|-------------|
-| `pincer shopee cart list` | List cart items with shop, price, variation, quantity. |
-| `pincer shopee search --query TEXT` | Search for products. |
+| `pincer grab food search [--query TEXT]` | List nearby restaurants |
+| `pincer grab auth status` | Check Grab login status |
+| `pincer line chat list [--unread] [--limit N]` | List LINE chats |
+| `pincer line chat read --chat NAME [--limit N]` | Read messages from a chat |
+| `pincer shopee cart list` | List shopping cart items |
+| `pincer shopee search --query TEXT` | Search for products |
 
 ### Global flags
 
@@ -108,11 +113,8 @@ Core libraries
 Tests are fixture-driven — real UIAutomator XML dumps captured from devices, replayed through `MockDevice` without needing a connected phone.
 
 ```bash
-# Run all tests
-go test ./...
-
-# Run with verbose output to see parsed data
-go test ./... -v
+go test ./...           # Run all tests
+go test ./... -v        # Verbose — shows parsed fixture data
 ```
 
 The test suite has three layers:
@@ -130,40 +132,22 @@ pincer/
 ├── src/pincer/
 │   ├── main.go
 │   ├── cmd/                  # CLI commands (cobra)
-│   │   ├── root.go
-│   │   ├── grab.go
-│   │   ├── line.go
-│   │   └── shopee.go
 │   ├── core/                 # Shared libraries
-│   │   ├── adb.go            # Device interface + ADB implementation
+│   │   ├── adb.go            # Device interface + ADB impl
 │   │   ├── device_mock.go    # Test double
 │   │   ├── elements.go       # XML parsing + element queries
 │   │   ├── workflow.go       # Wait/retry/scroll primitives
 │   │   ├── cache.go          # File-based state cache
 │   │   └── driver.go         # Driver interface + error types
 │   └── drivers/
-│       ├── grab/
-│       │   ├── driver.go     # Screen detection, navigation
-│       │   └── commands/
-│       │       ├── food.go   # Food search, restaurant parsing
-│       │       └── auth.go   # Login status check
-│       ├── line/
-│       │   ├── driver.go
-│       │   └── commands/
-│       │       └── chat.go   # Chat list, chat read
-│       └── shopee/
-│           ├── driver.go
-│           └── commands/
-│               ├── cart.go   # Cart item parsing
-│               └── search.go # Product search
+│       ├── grab/             # Grab driver + README
+│       ├── line/             # LINE driver + README
+│       └── shopee/           # Shopee driver + README
 ├── tests/
-│   ├── e2e_test.go           # AI assistant simulation tests
-│   └── fixtures/             # Real UIAutomator XML dumps
-│       ├── grab/
-│       ├── line/
-│       └── shopee/
+│   ├── e2e_test.go
+│   └── fixtures/
 ├── PLAN.md                   # Full design document
-├── AGENTS.md                 # Coding conventions for AI agents
+├── AGENTS.md                 # Coding conventions (required reading for contributors)
 ├── go.mod
 └── go.sum
 ```

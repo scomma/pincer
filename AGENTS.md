@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Coding conventions and project-specific knowledge for AI agents working on Pincer.
+Coding conventions and project-specific knowledge for AI agents working on Pincer. Adherence to these conventions is a prerequisite for accepting pull requests.
 
 ## Build and test
 
@@ -12,6 +12,35 @@ go run ./src/pincer     # Run the CLI
 ```
 
 Tests must pass before committing. There are currently 35 tests across 7 test packages.
+
+## Documentation organization
+
+This project enforces a strict separation between project-level and driver-level documentation. **Pull requests that put driver-specific content in top-level files, or project-level content in driver subdirectories, will not be accepted.**
+
+### What lives at the top level
+
+| File | Purpose |
+|------|---------|
+| `README.md` | Project introduction, install, architecture, quick command reference, testing overview. Must not contain driver-specific element IDs, screen detection logic, fixture notes, or output examples. |
+| `AGENTS.md` | Coding conventions, error patterns, testing patterns, documentation rules. References driver READMEs for app-specific details. |
+| `PLAN.md` | Design document and roadmap. |
+
+### What lives in each driver's README
+
+Every driver directory (`src/pincer/drivers/<app>/`) must have a `README.md` containing:
+
+1. **Package name** — the Android package identifier
+2. **Commands** — table of available CLI commands with flags
+3. **Screens** — table of screen states with detection heuristics and key indicators
+4. **Element ID quirks** — resource ID format, notable IDs, any non-obvious parsing logic
+5. **Fixture notes** — what each fixture file captures, known gaps
+6. **Output examples** — representative JSON output for each command
+
+This is the **only** place for app-specific knowledge. When an agent needs to understand how Grab's restaurant cards are structured or why Shopee uses bare resource IDs, the answer is in the driver's README — not in AGENTS.md or the top-level README.
+
+### Adding a new driver
+
+When adding a new driver, create its README following the structure above before submitting the PR. Use an existing driver README as the template.
 
 ## How the code is organized
 
@@ -26,8 +55,18 @@ tests/e2e_test.go      → end-to-end tests using MockDevice
 ```
 
 Each driver follows the same structure:
-- `driver.go` — screen detection (a `DetectScreen` function), navigation methods, the driver struct
+- `README.md` — driver-specific documentation (see above)
+- `driver.go` — screen detection (`DetectScreen` function), navigation methods, the driver struct
 - `commands/*.go` — one file per domain (food, auth, chat, cart, search). Each command is a standalone function that takes a context, driver, and flags.
+
+## CLI conventions
+
+Every cobra command must have:
+- `Short` — one-line description (shown in parent's help)
+- `Long` — multi-line description explaining behavior, output, and edge cases
+- `Example` — at least one runnable example, including piping to `jq` where useful
+
+App-level commands (e.g., `grabCmd`) must list available domains in their `Long` text. Leaf commands must document required flags and what the output contains.
 
 ## Key interfaces
 
@@ -64,7 +103,7 @@ This prevents shared-mutable-sentinel bugs. All common errors (`ErrNotLoggedIn`,
 When wrapping real errors from ADB or other calls, use `fmt.Errorf` with `%w`:
 
 ```go
-if err :=driver.EnsureAppRunning(ctx); err != nil {
+if err := driver.EnsureAppRunning(ctx); err != nil {
     return nil, fmt.Errorf("ensure app running: %w", err)
 }
 ```
@@ -126,34 +165,7 @@ Tests use relative paths like `"../../../../tests/fixtures/grab/home.xml"`. Thes
 
 ## Screen detection
 
-Each driver has a `DetectScreen(finder) Screen` function that identifies which screen the app is showing. Detection uses heuristics — specific resource IDs, text content, or content descriptions that are stable across app versions.
-
-When the Grab fixtures were captured, the home screen and food home screen were visually different states but structurally similar (both have the service tiles). The key differentiator is `search_bar_clickable_area` — present on food screens, absent on the pure home screen. Our current fixtures don't include a "pure home" capture.
-
-## App-specific quirks
-
-### Grab (`com.grabtaxi.passenger`)
-
-- Resource IDs use the full package prefix: `com.grabtaxi.passenger:id/duxton_card`
-- The food tile has `content-desc="Food, double tap to select"` (accessibility label), which is more reliable than matching the "Food" text
-- Restaurant cards use `duxton_card` as the resource ID (Grab's internal component name)
-- Restaurant names and promos are child TextViews inside `duxton_card`, with no distinguishing resource IDs — identified by position (first text = name, promo matched by regex)
-
-### LINE (`jp.naver.line.android`)
-
-- Resource IDs use the full package prefix: `jp.naver.line.android:id/name`
-- Chat list items are children of `chat_list_recycler_view`
-- Each chat item has well-labeled children: `name`, `last_message`, `date`, `unread_message_count`, `member_count`, `notification_off`
-- OpenChat groups use a different unread ID: `square_chat_unread_message_count`
-- Unread counts can be `"999+"` — the `+` is stripped before parsing
-- Chat read uses **exact name match only**. No fuzzy/substring fallback, to prevent opening the wrong conversation.
-
-### Shopee (`com.shopee.th`)
-
-- Resource IDs have **no package prefix** — just bare names like `labelItemName`, `labelShopName`, `labelVariation`. This is different from Grab and LINE. Don't add `com.shopee.th:id/` when querying.
-- The `homepage_main_recycler` ID does use the full prefix (`com.shopee.th:id/homepage_main_recycler`)
-- Cart items are associated to shops by vertical position — each item's shop is the nearest `labelShopName` above it in Y coordinates
-- The `orders.xml` fixture is actually a profile/edit screen, not an orders list. It was captured from the Me tab.
+Each driver has a `DetectScreen(finder) Screen` function that identifies which screen the app is showing. Detection uses heuristics — specific resource IDs, text content, or content descriptions that are stable across app versions. The specifics are documented in each driver's README.
 
 ## Navigation pattern
 
@@ -173,19 +185,22 @@ Do not use recursion for navigation. A previous version did and it caused stack 
 
 1. Create `src/pincer/drivers/<app>/driver.go` with screen detection and navigation
 2. Create `src/pincer/drivers/<app>/commands/<domain>.go` with command functions
-3. Create `src/pincer/cmd/<app>.go` with cobra commands
-4. Capture fixtures from a real device and save to `tests/fixtures/<app>/`
-5. Write fixture-driven tests
+3. Create `src/pincer/drivers/<app>/README.md` following the required structure (see Documentation organization above)
+4. Create `src/pincer/cmd/<app>.go` with cobra commands — must include `Long` and `Example` on every command
+5. Capture fixtures from a real device and save to `tests/fixtures/<app>/`
+6. Write fixture-driven tests
+7. Add a case to `TestAIAssistantAllCommandsCoverage` in `tests/e2e_test.go`
 
 The driver struct should have `Dev core.Device`, `Workflow *core.Workflow`, and `Cache *core.Cache`. Accept `core.Device` in the constructor.
 
 ## Adding a new command to an existing driver
 
 1. Add a function in `drivers/<app>/commands/<domain>.go`
-2. Wire it to cobra in `cmd/<app>.go`
+2. Wire it to cobra in `cmd/<app>.go` — include `Long` and `Example`
 3. Capture relevant fixtures if the existing ones don't cover the new screen
 4. Write a test in `drivers/<app>/commands/<domain>_test.go`
 5. Add a case to `TestAIAssistantAllCommandsCoverage` in `tests/e2e_test.go`
+6. Update the driver's README with the new command, any new screens, and output examples
 
 ## Things to watch out for
 
