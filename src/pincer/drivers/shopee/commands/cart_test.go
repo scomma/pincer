@@ -31,28 +31,28 @@ func TestParseCartItems(t *testing.T) {
 	}
 
 	// Should find the Northstar item
-	var foundEnergea bool
+	var foundNorthstar bool
 	for _, item := range items {
-		if item.Shop == "Northstar Flagship Store" {
-			foundEnergea = true
+		if item.Shop == "Northstar Supply" {
+			foundNorthstar = true
 			if item.Variation != "GRAPHITE" {
 				t.Errorf("expected GRAPHITE variation, got %q", item.Variation)
 			}
 			break
 		}
 	}
-	if !foundEnergea {
-		t.Error("expected to find Northstar Flagship Store item")
+	if !foundNorthstar {
+		t.Error("expected to find Northstar Supply item")
 	}
 
 	// Should find Orbit Labs items
-	var inovagenCount int
+	var orbitCount int
 	for _, item := range items {
-		if item.Shop == "Orbit Labs TH" {
-			inovagenCount++
+		if item.Shop == "Orbit Labs" {
+			orbitCount++
 		}
 	}
-	if inovagenCount != 2 {
-		t.Errorf("expected 2 Orbit Labs TH items, got %d", inovagenCount)
+	if orbitCount != 2 {
+		t.Errorf("expected 2 Orbit Labs items, got %d", orbitCount)
 	}
 }
