@@ -121,5 +121,12 @@ func (w *Workflow) EnsureApp(ctx context.Context, pkg string, timeout time.Durat
 	if err := w.Dev.LaunchApp(ctx, pkg); err != nil {
 		return fmt.Errorf("launching %s: %w", pkg, err)
 	}
-	return w.WaitForPackage(ctx, pkg, timeout)
+	if err := w.WaitForPackage(ctx, pkg, timeout); err != nil {
+		return err
+	}
+	// After the package appears in the foreground, wait for the app to
+	// finish its startup animations. Without this pause, the first
+	// UI dump often captures the system UI overlay instead of the app.
+	time.Sleep(3 * time.Second)
+	return nil
 }

@@ -81,20 +81,23 @@ func DetectScreen(finder *core.ElementFinder) Screen {
 		return ScreenLoginPIN
 	}
 
-	// Grab's food home shows service tiles AND food content (search bar, restaurant cards).
-	// The "pure home" (before tapping Food) doesn't have the search bar or feed.
+	hasDuxtonCard := finder.ByID("com.grabtaxi.passenger:id/duxton_card") != nil
+	hasFeedList := finder.ByID("com.grabtaxi.passenger:id/feedList") != nil
 	hasSearchBar := finder.ByID("com.grabtaxi.passenger:id/search_bar_clickable_area") != nil
 	hasFoodTile := finder.First(core.HasContentDesc("Food, double tap to select")) != nil
 	hasTransportTile := finder.First(core.HasContentDesc("Transport, double tap to select")) != nil
 
+	// Food results: has restaurant cards (duxton_card) or the feed list.
+	if hasDuxtonCard || (hasFeedList && hasSearchBar) {
+		return ScreenFoodResults
+	}
+
+	// Food home: has the search bar but no restaurant cards yet.
 	if hasSearchBar {
-		if finder.ByID("com.grabtaxi.passenger:id/duxton_card") != nil {
-			return ScreenFoodResults
-		}
 		return ScreenFoodHome
 	}
 
-	// Home screen: has service tiles but no food search bar
+	// Home screen: has service tiles (Food, Transport) but no food content.
 	if hasFoodTile && hasTransportTile {
 		return ScreenHome
 	}
@@ -133,10 +136,22 @@ func (b *GrabDriver) NavigateToFoodHome(ctx context.Context) error {
 				core.HasID("com.grabtaxi.passenger:id/search_bar_clickable_area"))
 			return err
 		default:
-			if err := b.EnsureAppRunning(ctx); err != nil {
+			// Unknown screen inside the app — try pressing back first.
+			// Many sub-screens (restaurant detail, grocery listing, promos)
+			// resolve to the food home after one or two presses.
+			if err := b.Dev.KeyEvent(ctx, "KEYCODE_BACK"); err != nil {
 				return err
 			}
 			time.Sleep(2 * time.Second)
+
+			// If back left the app entirely, re-launch it.
+			current, _ := b.Dev.CurrentPackage(ctx)
+			if current != PackageName {
+				if err := b.EnsureAppRunning(ctx); err != nil {
+					return err
+				}
+				time.Sleep(2 * time.Second)
+			}
 		}
 	}
 	return core.ErrNavigation()

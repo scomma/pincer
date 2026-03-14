@@ -64,7 +64,10 @@ func DetectScreen(finder *core.ElementFinder) Screen {
 	if finder.ByID("jp.naver.line.android:id/chat_list_recycler_view") != nil {
 		return ScreenChats
 	}
-	if finder.ByID("jp.naver.line.android:id/chathistory_message_edit_text") != nil {
+	// Chat detail: check multiple possible IDs across LINE versions.
+	if finder.ByID("jp.naver.line.android:id/chathistory_message_edit_text") != nil ||
+		finder.ByID("jp.naver.line.android:id/chat_ui_message_edit") != nil ||
+		finder.ByID("jp.naver.line.android:id/chathistory_message_list") != nil {
 		return ScreenChatDetail
 	}
 	return ScreenUnknown
@@ -99,10 +102,20 @@ func (b *LineDriver) NavigateToChats(ctx context.Context) error {
 			return err
 		}
 
-		if err := b.EnsureAppRunning(ctx); err != nil {
+		// Unknown or chat detail screen — press back to reach the chat list.
+		if err := b.Dev.KeyEvent(ctx, "KEYCODE_BACK"); err != nil {
 			return err
 		}
 		time.Sleep(2 * time.Second)
+
+		// If back left the app entirely, re-launch it.
+		current, _ := b.Dev.CurrentPackage(ctx)
+		if current != PackageName {
+			if err := b.EnsureAppRunning(ctx); err != nil {
+				return err
+			}
+			time.Sleep(2 * time.Second)
+		}
 	}
 	return core.ErrNavigation()
 }

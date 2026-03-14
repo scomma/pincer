@@ -51,18 +51,50 @@ func (a *ADB) Shell(ctx context.Context, cmd string) (string, error) {
 }
 
 // DumpUI captures the current UI hierarchy XML from the device.
+// Retries up to 3 times on transient errors (signal killed, UI not idle).
 func (a *ADB) DumpUI(ctx context.Context) (string, error) {
-	_, err := a.Shell(ctx, "uiautomator dump /sdcard/window_dump.xml")
-	if err != nil {
-		return "", fmt.Errorf("uiautomator dump: %w", err)
+	const maxRetries = 3
+	var lastErr error
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+
+		_, err := a.Shell(ctx, "uiautomator dump /sdcard/window_dump.xml")
+		if err != nil {
+			lastErr = fmt.Errorf("uiautomator dump: %w", err)
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
+		args := a.args("shell", "cat", "/sdcard/window_dump.xml")
+		c := exec.CommandContext(ctx, "adb", args...)
+		out, err := c.CombinedOutput()
+		if err != nil {
+			lastErr = fmt.Errorf("reading dump: %w: %s", err, string(out))
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
+		xml := string(out)
+
+		// If the dump contains only SystemUI elements (lock screen, notification
+		// shade), the app's UI tree wasn't captured — usually because the app
+		// wasn't idle. Wait and retry.
+		if strings.Contains(xml, "com.android.systemui") &&
+			!strings.Contains(xml, "com.grabtaxi") &&
+			!strings.Contains(xml, "com.shopee") &&
+			!strings.Contains(xml, "jp.naver.line") {
+			lastErr = fmt.Errorf("dump captured SystemUI instead of app (attempt %d)", attempt+1)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		return xml, nil
 	}
-	args := a.args("shell", "cat", "/sdcard/window_dump.xml")
-	c := exec.CommandContext(ctx, "adb", args...)
-	out, err := c.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("reading dump: %w: %s", err, string(out))
-	}
-	return string(out), nil
+
+	return "", fmt.Errorf("DumpUI failed after %d attempts: %w", maxRetries, lastErr)
 }
 
 // Tap taps a point on the screen.
@@ -136,11 +168,11 @@ func (a *ADB) CurrentPackage(ctx context.Context) (string, error) {
 
 // IsScreenOn checks whether the device display is currently on.
 func (a *ADB) IsScreenOn(ctx context.Context) (bool, error) {
-	out, err := a.Shell(ctx, "dumpsys power | grep 'Display Power'")
+	out, err := a.Shell(ctx, "dumpsys power | grep mWakefulness")
 	if err != nil {
 		return false, err
 	}
-	return strings.Contains(out, "state=ON"), nil
+	return strings.Contains(out, "Awake"), nil
 }
 
 // WakeScreen turns the display on if it is off.
