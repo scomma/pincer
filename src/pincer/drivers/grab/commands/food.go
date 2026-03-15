@@ -6,9 +6,11 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
-	"github.com/prathan/pincer/src/pincer/drivers/grab"
 	"github.com/prathan/pincer/src/pincer/core"
+	"github.com/prathan/pincer/src/pincer/drivers/grab"
 )
 
 // Restaurant represents a parsed restaurant from the food listing.
@@ -77,7 +79,7 @@ func FoodSearch(ctx context.Context, driver *grab.GrabDriver, query string) (*Fo
 			if err := driver.Workflow.ScrollDown(ctx); err != nil {
 				return nil, err
 			}
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(250 * time.Millisecond)
 		}
 	}
 
@@ -110,7 +112,7 @@ func findSearchBar(ctx context.Context, driver *grab.GrabDriver) (*core.Element,
 		if err := driver.Workflow.ScrollUp(ctx); err != nil {
 			return nil, err
 		}
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(250 * time.Millisecond)
 	}
 	return nil, core.ErrElementNotFound()
 }
@@ -137,15 +139,15 @@ func performSearch(ctx context.Context, driver *grab.GrabDriver, query string) e
 	}
 	// Pause to let the input system process all the delete keyevents
 	// before typing new text. Without this, characters interleave.
-	time.Sleep(1 * time.Second)
+	time.Sleep(500 * time.Millisecond)
 
-	if err := driver.Dev.TypeText(ctx, query); err != nil {
+	if err := typeVerifiedQuery(ctx, driver, query); err != nil {
 		return err
 	}
 
 	// Grab shows search suggestions after typing. Tap "See results for ..."
 	// to execute the actual search (ENTER just shows suggestions).
-	time.Sleep(2 * time.Second)
+	time.Sleep(1200 * time.Millisecond)
 
 	finder, err := driver.Workflow.FreshDump(ctx)
 	if err != nil {
@@ -155,6 +157,13 @@ func performSearch(ctx context.Context, driver *grab.GrabDriver, query string) e
 	seeResults := finder.First(core.HasText("See results for"))
 	if seeResults != nil {
 		return seeResults.Tap(ctx, driver.Dev)
+	}
+
+	if exactSuggestion := finder.ByText(query, true); exactSuggestion != nil {
+		if tappable := nearestClickable(exactSuggestion); tappable != nil {
+			return tappable.Tap(ctx, driver.Dev)
+		}
+		return exactSuggestion.Tap(ctx, driver.Dev)
 	}
 
 	// Fallback: try pressing enter.
@@ -188,15 +197,24 @@ func parseCard(card *core.Element) Restaurant {
 	// Collect all text from child TextViews
 	collectTexts(card, &textViews)
 
-	// First non-empty text is typically the name, rest are promos/details
+	bestScore := -1
 	for _, t := range textViews {
 		t = strings.TrimSpace(t)
 		if t == "" {
 			continue
 		}
-		if r.Name == "" {
+		if score := restaurantNameScore(t); score > bestScore {
+			bestScore = score
 			r.Name = t
-		} else if r.Promo == "" && isPromo(t) {
+		}
+	}
+
+	for _, t := range textViews {
+		t = strings.TrimSpace(t)
+		if t == "" || t == r.Name {
+			continue
+		}
+		if r.Promo == "" && isPromo(t) {
 			r.Promo = t
 		}
 	}
@@ -214,9 +232,108 @@ func collectTexts(e *core.Element, texts *[]string) {
 }
 
 var promoPattern = regexp.MustCompile(`(?i)(off|free|deal|promo|discount|%|฿)`)
+var deliveryMetaPattern = regexp.MustCompile(`(?i)(mins?|km|delivery|pickup|pick-up|from \d+)`)
+var digitsOnlyPattern = regexp.MustCompile(`^\d+$`)
 
 func isPromo(text string) bool {
 	return promoPattern.MatchString(text)
+}
+
+func restaurantNameScore(text string) int {
+	trimmed := strings.TrimSpace(text)
+	lower := strings.ToLower(trimmed)
+
+	switch {
+	case trimmed == "":
+		return -1
+	case lower == "ad":
+		return -1
+	case lower == "only at grab":
+		return -1
+	case strings.Contains(lower, "see all restaurants"):
+		return -1
+	case digitsOnlyPattern.MatchString(trimmed):
+		return -1
+	case deliveryMetaPattern.MatchString(lower):
+		return -1
+	case isPromo(trimmed):
+		return -1
+	}
+
+	score := utf8.RuneCountInString(trimmed)
+	if strings.Contains(trimmed, " - ") {
+		score += 12
+	}
+	if strings.Contains(trimmed, "(") && strings.Contains(trimmed, ")") {
+		score += 4
+	}
+	if hasLetter(trimmed) {
+		score += 8
+	}
+	if strings.Count(trimmed, " ") >= 1 {
+		score += 4
+	}
+
+	return score
+}
+
+func hasLetter(text string) bool {
+	for _, r := range text {
+		if unicode.IsLetter(r) {
+			return true
+		}
+	}
+	return false
+}
+
+func nearestClickable(el *core.Element) *core.Element {
+	for current := el; current != nil; current = current.Parent {
+		if current.Clickable {
+			return current
+		}
+	}
+	return nil
+}
+
+func typeVerifiedQuery(ctx context.Context, driver *grab.GrabDriver, query string) error {
+	const maxAttempts = 3
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if err := driver.Dev.TypeText(ctx, query); err != nil {
+			return err
+		}
+		time.Sleep(300 * time.Millisecond)
+
+		matches, err := queryMatchesInput(ctx, driver, query)
+		if err != nil {
+			return err
+		}
+		if matches {
+			return nil
+		}
+
+		if err := driver.Dev.ClearField(ctx); err != nil {
+			return err
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+
+	return core.NewDriverError("input_mismatch", "search query did not match the text entered in Grab")
+}
+
+func queryMatchesInput(ctx context.Context, driver *grab.GrabDriver, query string) (bool, error) {
+	finder, err := driver.Workflow.FreshDump(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	current := finder.First(func(e *core.Element) bool {
+		return e.Class == "android.widget.EditText" && strings.TrimSpace(e.Text) != ""
+	})
+	if current == nil {
+		return false, nil
+	}
+
+	return strings.EqualFold(strings.TrimSpace(current.Text), strings.TrimSpace(query)), nil
 }
 
 // ParseRestaurantCardsFromXML is a test helper that parses restaurants from raw XML.

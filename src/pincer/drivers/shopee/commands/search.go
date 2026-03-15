@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
-	"github.com/prathan/pincer/src/pincer/drivers/shopee"
 	"github.com/prathan/pincer/src/pincer/core"
+	"github.com/prathan/pincer/src/pincer/drivers/shopee"
 )
 
 // Product represents a Shopee search result.
@@ -74,12 +75,13 @@ func Search(ctx context.Context, driver *shopee.ShopeeDriver, query string) (*Se
 	}
 
 	// Wait for search results to load.
-	time.Sleep(2 * time.Second)
+	time.Sleep(1200 * time.Millisecond)
 
 	// Collect products across multiple screens by scrolling.
 	var products []Product
 	seen := map[string]bool{}
-	const maxScrolls = 5
+	const maxScrolls = 8
+	staleScrolls := 0
 
 	for scroll := 0; scroll <= maxScrolls; scroll++ {
 		if ctx.Err() != nil {
@@ -100,14 +102,19 @@ func Search(ctx context.Context, driver *shopee.ShopeeDriver, query string) (*Se
 		}
 
 		if newCount == 0 {
-			break
+			staleScrolls++
+			if staleScrolls >= 2 {
+				break
+			}
+		} else {
+			staleScrolls = 0
 		}
 
 		if scroll < maxScrolls {
 			if err := driver.Workflow.ScrollDown(ctx); err != nil {
 				return nil, err
 			}
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(250 * time.Millisecond)
 		}
 	}
 
@@ -118,32 +125,137 @@ func Search(ctx context.Context, driver *shopee.ShopeeDriver, query string) (*Se
 }
 
 func parseSearchResults(finder *core.ElementFinder) []Product {
-	// Shopee search results are product cards with name, price, discount, sold count
-	// This is a best-effort parser for the general structure
 	var products []Product
+	seenContainers := map[*core.Element]bool{}
 
-	// Find all elements that look like product names (long text in TextViews)
-	allText := finder.All(func(e *core.Element) bool {
-		return e.Class == "android.widget.TextView" && len(e.Text) > 20
+	nameEls := finder.All(func(e *core.Element) bool {
+		return e.Class == "android.widget.TextView" && looksLikeProductName(e.Text)
 	})
 
-	for _, el := range allText {
-		p := Product{Name: el.Text}
-		// Look for price/discount near this element (below it)
-		if el.Parent != nil {
-			for _, sibling := range el.Parent.Children {
-				if sibling.Text != "" && len(sibling.Text) < 20 {
-					if strings.HasPrefix(sibling.Text, "฿") {
-						p.Price = sibling.Text
-					}
-					if strings.HasPrefix(sibling.Text, "-") {
-						p.Discount = sibling.Text
-					}
-				}
+	for _, el := range nameEls {
+		container := searchResultContainer(el)
+		if container != nil {
+			if seenContainers[container] {
+				continue
 			}
+			seenContainers[container] = true
 		}
+
+		scope := container
+		if scope == nil {
+			scope = el
+		}
+		name := bestProductName(scope)
+		if name == "" {
+			name = strings.TrimSpace(el.Text)
+		}
+
+		p := Product{Name: name}
+		walkDescendants(scope, func(child *core.Element) {
+			text := strings.TrimSpace(child.Text)
+			switch {
+			case strings.HasPrefix(text, "฿") && p.Price == "":
+				p.Price = text
+			case strings.HasPrefix(text, "-") && p.Discount == "":
+				p.Discount = text
+			case looksLikeSoldCount(text) && p.Sold == "":
+				p.Sold = text
+			}
+		})
+
+		if p.Price == "" && container != nil && container.Parent != nil {
+			// Some builds render price as a sibling branch above the text node.
+			walkDescendants(container.Parent, func(child *core.Element) {
+				text := strings.TrimSpace(child.Text)
+				if strings.HasPrefix(text, "฿") && p.Price == "" {
+					p.Price = text
+				}
+			})
+		}
+
 		products = append(products, p)
 	}
 
 	return products
+}
+
+func looksLikeProductName(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	lower := strings.ToLower(trimmed)
+
+	switch {
+	case utf8.RuneCountInString(trimmed) < 12:
+		return false
+	case strings.HasPrefix(trimmed, "฿"):
+		return false
+	case strings.HasPrefix(lower, "จังหวัด"):
+		return false
+	case strings.EqualFold(trimmed, "Express Delivery"):
+		return false
+	case strings.EqualFold(trimmed, "Shopee Preferred"):
+		return false
+	case strings.EqualFold(trimmed, "See Original"):
+		return false
+	case strings.Contains(lower, "shop rating"):
+		return false
+	case strings.Contains(lower, "สินค้าแนะนำ"):
+		return false
+	case strings.Contains(lower, "ค้นหายอดนิยม"):
+		return false
+	case looksLikeSoldCount(trimmed):
+		return false
+	default:
+		return true
+	}
+}
+
+func bestProductName(scope *core.Element) string {
+	best := ""
+	bestScore := -1
+	walkDescendants(scope, func(child *core.Element) {
+		text := strings.TrimSpace(child.Text)
+		if score := searchNameScore(text); score > bestScore {
+			best = text
+			bestScore = score
+		}
+	})
+	return best
+}
+
+func searchNameScore(text string) int {
+	if !looksLikeProductName(text) {
+		return -1
+	}
+
+	score := utf8.RuneCountInString(text)
+	if strings.Contains(text, "…") {
+		score += 8
+	}
+	if strings.ContainsAny(text, "0123456789") {
+		score += 4
+	}
+	if strings.Contains(text, "USB") || strings.Contains(text, "Type") {
+		score += 4
+	}
+	if strings.ToUpper(text) == text && utf8.RuneCountInString(text) < 24 {
+		score -= 12
+	}
+	return score
+}
+
+func looksLikeSoldCount(text string) bool {
+	lower := strings.ToLower(strings.TrimSpace(text))
+	return strings.Contains(lower, "sold") || strings.Contains(lower, "ชิ้น")
+}
+
+func searchResultContainer(el *core.Element) *core.Element {
+	for current := el.Parent; current != nil; current = current.Parent {
+		if current.Clickable && current.Height() > 150 && current.Width() > 300 {
+			return current
+		}
+		if current.Scrollable {
+			break
+		}
+	}
+	return el.Parent
 }

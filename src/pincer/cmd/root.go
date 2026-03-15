@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 
 	"github.com/prathan/pincer/src/pincer/core"
@@ -45,29 +44,32 @@ func Execute() {
 
 func init() {
 	rootCmd.PersistentFlags().StringVarP(&deviceID, "device", "d", "", "ADB device serial (default: auto-detect)")
-	rootCmd.PersistentFlags().IntVarP(&timeout, "timeout", "t", 30, "Command timeout in seconds")
+	rootCmd.PersistentFlags().IntVarP(&timeout, "timeout", "t", 90, "Command timeout in seconds")
 }
 
 func newADB() *core.ADB {
 	return core.NewADB(deviceID)
 }
 
-func outputJSON(data any) {
-	enc := json.NewEncoder(os.Stdout)
+func outputJSONTo(stream *os.File, data any) {
+	enc := json.NewEncoder(stream)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(data)
 }
 
+func outputJSON(data any) {
+	outputJSONTo(os.Stdout, data)
+}
+
 func outputError(err error) {
 	if be, ok := err.(*core.DriverError); ok {
-		outputJSON(core.NewErrorResponse(be))
+		outputJSONTo(os.Stderr, core.NewErrorResponse(be))
 	} else {
-		outputJSON(core.ErrorResponse{
+		outputJSONTo(os.Stderr, core.ErrorResponse{
 			OK:      false,
 			Error:   "internal_error",
 			Message: err.Error(),
 		})
 	}
-	fmt.Fprintln(os.Stderr, "Error:", err)
 	os.Exit(1)
 }

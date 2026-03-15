@@ -6,6 +6,13 @@ import (
 	"time"
 )
 
+const (
+	uiPollInterval        = 250 * time.Millisecond
+	scrollSettleDelay     = 250 * time.Millisecond
+	backSettleDelay       = 750 * time.Millisecond
+	appStartupSettleDelay = 2 * time.Second
+)
+
 // Workflow provides reusable automation primitives.
 type Workflow struct {
 	Dev Device
@@ -38,7 +45,7 @@ func (w *Workflow) WaitForElement(ctx context.Context, timeout time.Duration, pr
 		finder, err := w.FreshDump(ctx)
 		if err != nil {
 			lastErr = err
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(uiPollInterval)
 			continue
 		}
 
@@ -46,7 +53,7 @@ func (w *Workflow) WaitForElement(ctx context.Context, timeout time.Duration, pr
 			return el, nil
 		}
 
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(uiPollInterval)
 	}
 
 	if lastErr != nil {
@@ -66,7 +73,7 @@ func (w *Workflow) WaitForPackage(ctx context.Context, pkg string, timeout time.
 		if err == nil && current == pkg {
 			return nil
 		}
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(uiPollInterval)
 	}
 	return fmt.Errorf("package %s not in foreground within %v", pkg, timeout)
 }
@@ -74,12 +81,12 @@ func (w *Workflow) WaitForPackage(ctx context.Context, pkg string, timeout time.
 // Swipe coordinates assuming a 1080×2400 screen. Centralized so there's
 // one place to change when supporting different screen resolutions.
 const (
-	SwipeX     = 540
-	SwipeDownY1 = 1600
-	SwipeDownY2 = 800
-	SwipeUpY1   = 400
-	SwipeUpY2   = 1600
-	SwipeDurMS  = 300
+	SwipeX      = 540
+	SwipeDownY1 = 1650
+	SwipeDownY2 = 1050
+	SwipeUpY1   = 750
+	SwipeUpY2   = 1550
+	SwipeDurMS  = 250
 )
 
 // ScrollDown performs a downward scroll gesture.
@@ -108,7 +115,7 @@ func (w *Workflow) ScrollUntil(ctx context.Context, match func(*ElementFinder) b
 		if err := w.ScrollDown(ctx); err != nil {
 			return err
 		}
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(scrollSettleDelay)
 	}
 	return fmt.Errorf("condition not met after %d scrolls", limit)
 }
@@ -119,7 +126,7 @@ func (w *Workflow) BackOrRelaunch(ctx context.Context, pkg string) error {
 	if err := w.Dev.KeyEvent(ctx, "KEYCODE_BACK"); err != nil {
 		return err
 	}
-	time.Sleep(2 * time.Second)
+	time.Sleep(backSettleDelay)
 
 	current, _ := w.Dev.CurrentPackage(ctx)
 	if current != pkg {
@@ -165,6 +172,6 @@ func (w *Workflow) EnsureApp(ctx context.Context, pkg string, timeout time.Durat
 	// After the package appears in the foreground, wait for the app to
 	// finish its startup animations. Without this pause, the first
 	// UI dump often captures the system UI overlay instead of the app.
-	time.Sleep(3 * time.Second)
+	time.Sleep(appStartupSettleDelay)
 	return nil
 }

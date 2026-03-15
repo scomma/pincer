@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // Device is the interface for interacting with an Android device.
@@ -40,13 +42,20 @@ func (a *ADB) args(cmd ...string) []string {
 	return cmd
 }
 
-// Shell runs a shell command on the device and returns its output.
-func (a *ADB) Shell(ctx context.Context, cmd string) (string, error) {
-	args := a.args("shell", cmd)
-	c := exec.CommandContext(ctx, "adb", args...)
+func (a *ADB) run(ctx context.Context, args ...string) ([]byte, error) {
+	c := exec.CommandContext(ctx, "adb", a.args(args...)...)
 	out, err := c.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("adb shell %q: %w: %s", cmd, err, string(out))
+		return out, fmt.Errorf("adb %s: %w: %s", strings.Join(args, " "), err, string(out))
+	}
+	return out, nil
+}
+
+// Shell runs a shell command on the device and returns its output.
+func (a *ADB) Shell(ctx context.Context, cmd string) (string, error) {
+	out, err := a.run(ctx, "shell", cmd)
+	if err != nil {
+		return "", fmt.Errorf("adb shell %q: %w", cmd, err)
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -106,31 +115,110 @@ func (a *ADB) Tap(ctx context.Context, x, y int) error {
 // ClearField clears text from the currently focused input field.
 // Moves cursor to end then sends backspaces to delete existing text.
 func (a *ADB) ClearField(ctx context.Context) error {
+	if _, err := a.run(ctx, "shell", "input", "keycombination", "113", "29"); err == nil {
+		time.Sleep(150 * time.Millisecond)
+		if err := a.KeyEvent(ctx, "KEYCODE_DEL"); err == nil {
+			time.Sleep(150 * time.Millisecond)
+			return nil
+		}
+	}
 	if err := a.KeyEvent(ctx, "KEYCODE_MOVE_END"); err != nil {
 		return err
 	}
 	time.Sleep(200 * time.Millisecond)
-	// Send 20 backspaces in a single input keyevent call (batched).
-	if _, err := a.Shell(ctx, "input keyevent 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67"); err != nil {
+	// Send enough backspaces to clear pre-filled suggestions and prior queries.
+	if _, err := a.Shell(ctx, "input keyevent 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67"); err != nil {
 		return err
 	}
 	time.Sleep(200 * time.Millisecond)
 	return nil
 }
 
-// TypeText types text on the device.
-// Uses exec args directly to avoid shell injection.
+// TypeText types text on the device. Prefer a single `input text` call
+// because it avoids mid-word autocomplete races; fall back to slower,
+// per-character entry if the fast path errors.
 func (a *ADB) TypeText(ctx context.Context, text string) error {
-	// adb's `input text` uses %s for spaces — that's the only substitution needed.
-	// By passing args directly to exec (not through a shell string), we avoid injection.
-	escaped := strings.ReplaceAll(text, " ", "%s")
-	args := a.args("shell", "input", "text", escaped)
-	c := exec.CommandContext(ctx, "adb", args...)
-	out, err := c.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("adb input text: %w: %s", err, string(out))
+	if _, err := a.run(ctx, "shell", "input", "text", escapeADBInputText(text)); err == nil {
+		return nil
+	}
+
+	for _, r := range text {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if unicode.IsSpace(r) {
+			if err := a.KeyEvent(ctx, "KEYCODE_SPACE"); err != nil {
+				return err
+			}
+			time.Sleep(120 * time.Millisecond)
+			continue
+		}
+		if err := a.typeRune(ctx, r); err != nil {
+			return err
+		}
+		time.Sleep(90 * time.Millisecond)
 	}
 	return nil
+}
+
+func (a *ADB) typeRune(ctx context.Context, r rune) error {
+	if key := runeKeyCode(r); key != "" {
+		return a.KeyEvent(ctx, key)
+	}
+	escaped := escapeADBInputText(string(r))
+	if _, err := a.run(ctx, "shell", "input", "text", escaped); err != nil {
+		return err
+	}
+	return nil
+}
+
+func runeKeyCode(r rune) string {
+	switch {
+	case r >= 'a' && r <= 'z':
+		return "KEYCODE_" + strings.ToUpper(string(r))
+	case r >= 'A' && r <= 'Z':
+		return "KEYCODE_" + string(r)
+	case r >= '0' && r <= '9':
+		return "KEYCODE_" + string(r)
+	}
+
+	switch r {
+	case '-':
+		return "KEYCODE_MINUS"
+	case '.':
+		return "KEYCODE_PERIOD"
+	case ',':
+		return "KEYCODE_COMMA"
+	case '/':
+		return "KEYCODE_SLASH"
+	case '@':
+		return "KEYCODE_AT"
+	case '\'':
+		return "KEYCODE_APOSTROPHE"
+	default:
+		return ""
+	}
+}
+
+func escapeADBInputText(text string) string {
+	var b strings.Builder
+	for _, r := range text {
+		switch r {
+		case ' ':
+			b.WriteString("%s")
+		case '\\', '"', '\'', '(', ')', '<', '>', '|', ';', '&', '*', '$', '!', '?', '#', '%':
+			b.WriteByte('\\')
+			b.WriteRune(r)
+		default:
+			if unicode.IsPrint(r) {
+				b.WriteRune(r)
+				continue
+			}
+			b.WriteString("\\u")
+			b.WriteString(strconv.FormatInt(int64(r), 16))
+		}
+	}
+	return b.String()
 }
 
 // KeyEvent sends a key event to the device.
