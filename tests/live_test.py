@@ -83,11 +83,11 @@ Usage
 
 Run one randomized pass with a reproducible order:
 
-    python3 tests/LIVE_TEST_PLAN.py --seed 123
+    python3 tests/live_test_plan.py --seed 123
 
 Run two documented passes plus unexpected cases:
 
-    python3 tests/LIVE_TEST_PLAN.py --passes 2 --include-extra --seed 123
+    python3 tests/live_test_plan.py --passes 2 --include-extra --seed 123
 """
 
 from __future__ import annotations

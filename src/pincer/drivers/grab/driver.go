@@ -70,8 +70,11 @@ func DetectScreen(finder *core.ElementFinder) Screen {
 	if finder.ByID("com.grabtaxi.passenger:id/simple_guest_login_view_login") != nil ||
 		finder.ByID("com.grabtaxi.passenger:id/simple_guest_login_view_signup") != nil ||
 		finder.ByID("com.grabtaxi.passenger:id/simple_guest_login_view_title") != nil ||
+		finder.ByID("com.grabtaxi.passenger:id/newface_guest_browsing_bottom_login") != nil ||
+		finder.ByID("com.grabtaxi.passenger:id/newface_guest_browsing_bottom_signup") != nil ||
 		finder.ByText("Let’s get you in!", false) != nil ||
-		finder.ByText("Let's get you in!", false) != nil {
+		finder.ByText("Let's get you in!", false) != nil ||
+		finder.ByText("Sign up to do more with Grab!", false) != nil {
 		return ScreenLoginGuest
 	}
 	if finder.ByText("Continue With Mobile Number", true) != nil {

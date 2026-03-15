@@ -112,3 +112,27 @@ func TestEnsureLoggedInGuestLogin(t *testing.T) {
 		t.Fatalf("expected logged out on guest login sheet")
 	}
 }
+
+func TestDetectScreenGuestStickyFooter(t *testing.T) {
+	const guestFooterXML = `<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>
+<hierarchy rotation="0">
+  <node index="0" text="" resource-id="" class="android.widget.FrameLayout" package="com.grabtaxi.passenger" bounds="[0,0][1080,2400]">
+    <node index="0" text="Sign up to do more with Grab!" resource-id="com.grabtaxi.passenger:id/bruce_banner_sub_header" class="android.widget.TextView" package="com.grabtaxi.passenger" bounds="[42,280][564,333]"/>
+    <node index="1" text="" resource-id="com.grabtaxi.passenger:id/newface_guest_browsing_bottom_signup" class="android.view.ViewGroup" package="com.grabtaxi.passenger" clickable="true" bounds="[63,2056][519,2200]">
+      <node index="0" text="Sign Up" resource-id="" class="android.widget.TextView" package="com.grabtaxi.passenger" bounds="[213,2098][370,2158]"/>
+    </node>
+    <node index="2" text="" resource-id="com.grabtaxi.passenger:id/newface_guest_browsing_bottom_login" class="android.view.ViewGroup" package="com.grabtaxi.passenger" clickable="true" bounds="[582,2056][1038,2200]">
+      <node index="0" text="Log In" resource-id="" class="android.widget.TextView" package="com.grabtaxi.passenger" bounds="[748,2098][872,2158]"/>
+    </node>
+  </node>
+</hierarchy>`
+
+	finder, err := core.NewElementFinderFromXML([]byte(guestFooterXML))
+	if err != nil {
+		t.Fatalf("parsing: %v", err)
+	}
+
+	if screen := DetectScreen(finder); screen != ScreenLoginGuest {
+		t.Fatalf("expected LOGIN_GUEST, got %s", screen)
+	}
+}

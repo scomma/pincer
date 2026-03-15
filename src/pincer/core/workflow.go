@@ -70,12 +70,34 @@ func (w *Workflow) WaitForPackage(ctx context.Context, pkg string, timeout time.
 			return ctx.Err()
 		}
 		current, err := w.Dev.CurrentPackage(ctx)
-		if err == nil && current == pkg {
-			return nil
+		if err == nil {
+			if current == pkg {
+				return nil
+			}
+			if shouldDismissForegroundPackage(current) {
+				if err := w.Dev.KeyEvent(ctx, "KEYCODE_BACK"); err != nil {
+					return err
+				}
+				time.Sleep(backSettleDelay)
+				if err := w.Dev.LaunchApp(ctx, pkg); err != nil {
+					return fmt.Errorf("relaunching %s after dismissing %s: %w", pkg, current, err)
+				}
+				time.Sleep(appStartupSettleDelay)
+				continue
+			}
 		}
 		time.Sleep(uiPollInterval)
 	}
 	return fmt.Errorf("package %s not in foreground within %v", pkg, timeout)
+}
+
+func shouldDismissForegroundPackage(pkg string) bool {
+	switch pkg {
+	case "com.google.android.gms":
+		return true
+	default:
+		return false
+	}
 }
 
 // Swipe coordinates assuming a 1080×2400 screen. Centralized so there's
