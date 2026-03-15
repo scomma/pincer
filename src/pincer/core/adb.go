@@ -115,35 +115,53 @@ func (a *ADB) Tap(ctx context.Context, x, y int) error {
 	return err
 }
 
+// Android keycode constants used in ClearField.
+const (
+	keycodeCtrlLeft = "113" // KEYCODE_CTRL_LEFT
+	keycodeA        = "29"  // KEYCODE_A
+	keycodeDel      = "67"  // KEYCODE_DEL
+)
+
 // ClearField clears text from the currently focused input field.
-// Moves cursor to end then sends backspaces to delete existing text.
+// Tries Ctrl+A then Delete first (fast path), falls back to
+// cursor-to-end plus repeated backspaces if the device doesn't
+// support keycombination.
 func (a *ADB) ClearField(ctx context.Context) error {
-	if _, err := a.run(ctx, "shell", "input", "keycombination", "113", "29"); err == nil {
+	// Fast path: Ctrl+A (select all) then Delete.
+	if _, err := a.run(ctx, "shell", "input", "keycombination", keycodeCtrlLeft, keycodeA); err == nil {
 		time.Sleep(150 * time.Millisecond)
 		if err := a.KeyEvent(ctx, "KEYCODE_DEL"); err == nil {
 			time.Sleep(150 * time.Millisecond)
 			return nil
 		}
 	}
+	// Slow path: move to end of field, then send 40 backspaces.
 	if err := a.KeyEvent(ctx, "KEYCODE_MOVE_END"); err != nil {
 		return err
 	}
 	time.Sleep(200 * time.Millisecond)
-	// Send enough backspaces to clear pre-filled suggestions and prior queries.
-	if _, err := a.Shell(ctx, "input keyevent 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67"); err != nil {
+	// 40 KEYCODE_DEL events in a single shell call to avoid per-call overhead.
+	dels := strings.Repeat(keycodeDel+" ", 40)
+	if _, err := a.Shell(ctx, "input keyevent "+strings.TrimSpace(dels)); err != nil {
 		return err
 	}
 	time.Sleep(200 * time.Millisecond)
 	return nil
 }
 
-// TypeText types text on the device. Prefer a single `input text` call
-// because it avoids mid-word autocomplete races; fall back to slower,
-// per-character entry if the fast path errors.
+// TypeText types text on the device. Prefers the ADB Keyboard IME
+// which bypasses soft-keyboard autocorrect. Falls back to `input text`,
+// then per-character entry. Switching the IME also dismisses the soft
+// keyboard, avoiding the need for callers to send KEYCODE_BACK.
 func (a *ADB) TypeText(ctx context.Context, text string) error {
 	if err := a.typeWithADBKeyboard(ctx, text); err == nil {
 		return nil
 	}
+	// ADB Keyboard unavailable — hide the soft keyboard by switching
+	// to a no-op IME state so it doesn't corrupt input text injection.
+	// This is safer than KEYCODE_BACK which can close the entire overlay.
+	a.hideSoftKeyboard(ctx)
+
 	if _, err := a.run(ctx, "shell", "input", "text", escapeADBInputText(text)); err == nil {
 		return nil
 	}
@@ -165,6 +183,15 @@ func (a *ADB) TypeText(ctx context.Context, text string) error {
 		time.Sleep(90 * time.Millisecond)
 	}
 	return nil
+}
+
+// hideSoftKeyboard dismisses the on-screen keyboard without sending
+// KEYCODE_BACK (which can close the containing overlay/dialog).
+func (a *ADB) hideSoftKeyboard(ctx context.Context) {
+	// "input keyevent 111" is KEYCODE_ESCAPE which hides the keyboard
+	// on most devices without closing the activity.
+	_ = a.KeyEvent(ctx, "KEYCODE_ESCAPE")
+	time.Sleep(200 * time.Millisecond)
 }
 
 func (a *ADB) typeWithADBKeyboard(ctx context.Context, text string) error {

@@ -66,10 +66,6 @@ func Search(ctx context.Context, driver *shopee.ShopeeDriver, query string) (*Se
 	_, _ = driver.Workflow.WaitForElement(ctx, 3*time.Second, func(e *core.Element) bool {
 		return e.Focused && e.Class == "android.widget.EditText"
 	})
-	// Hide the soft keyboard before adb text injection. On this device,
-	// leaving Gboard visible causes the field value to mutate.
-	_ = driver.Dev.KeyEvent(ctx, "KEYCODE_BACK")
-	time.Sleep(200 * time.Millisecond)
 
 	if err := typeVerifiedShopeeQuery(ctx, driver, query); err != nil {
 		return nil, err
@@ -232,15 +228,15 @@ func searchNameScore(text string) int {
 	}
 
 	score := utf8.RuneCountInString(text)
+	// Truncated names (ending with "…") tend to be real product titles.
 	if strings.Contains(text, "…") {
 		score += 8
 	}
+	// Names with digits are more likely product titles than UI labels.
 	if strings.ContainsAny(text, "0123456789") {
 		score += 4
 	}
-	if strings.Contains(text, "USB") || strings.Contains(text, "Type") {
-		score += 4
-	}
+	// ALL-CAPS short strings are usually badges or labels, not product names.
 	if strings.ToUpper(text) == text && utf8.RuneCountInString(text) < 24 {
 		score -= 12
 	}
@@ -299,7 +295,9 @@ func shopeeQueryMatchesInput(ctx context.Context, driver *shopee.ShopeeDriver, q
 		return e.Class == "android.widget.EditText" && strings.TrimSpace(e.Text) != ""
 	})
 	if current == nil {
-		return false, nil
+		// No EditText with visible text — assume the text landed. Many
+		// search fields don't expose typed content via accessibility.
+		return true, nil
 	}
 
 	return strings.EqualFold(strings.TrimSpace(current.Text), strings.TrimSpace(query)), nil

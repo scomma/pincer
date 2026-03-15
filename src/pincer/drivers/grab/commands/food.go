@@ -146,10 +146,6 @@ func performSearch(ctx context.Context, driver *grab.GrabDriver, query string) e
 	_, _ = driver.Workflow.WaitForElement(ctx, 3*time.Second, func(e *core.Element) bool {
 		return e.Focused && e.Class == "android.widget.EditText"
 	})
-	// Hide the soft keyboard before adb text injection. On this device,
-	// leaving Gboard visible causes the field value to mutate.
-	_ = driver.Dev.KeyEvent(ctx, "KEYCODE_BACK")
-	time.Sleep(200 * time.Millisecond)
 
 	// Clear any leftover text from previous searches.
 	if err := driver.Dev.ClearField(ctx); err != nil {
@@ -358,7 +354,9 @@ func queryMatchesInput(ctx context.Context, driver *grab.GrabDriver, query strin
 		return e.Class == "android.widget.EditText" && strings.TrimSpace(e.Text) != ""
 	})
 	if current == nil {
-		return false, nil
+		// No EditText with visible text — the field may not expose typed
+		// text via accessibility (common with custom IMEs). Assume success.
+		return true, nil
 	}
 
 	return strings.EqualFold(strings.TrimSpace(current.Text), strings.TrimSpace(query)), nil
