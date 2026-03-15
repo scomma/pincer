@@ -82,6 +82,9 @@ func Search(ctx context.Context, driver *shopee.ShopeeDriver, query string) (*Se
 	const maxScrolls = 5
 
 	for scroll := 0; scroll <= maxScrolls; scroll++ {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		finder, err = driver.Workflow.FreshDump(ctx)
 		if err != nil {
 			return nil, err
@@ -101,7 +104,7 @@ func Search(ctx context.Context, driver *shopee.ShopeeDriver, query string) (*Se
 		}
 
 		if scroll < maxScrolls {
-			if err := driver.Dev.Swipe(ctx, 540, 1600, 540, 800, 300); err != nil {
+			if err := driver.Workflow.ScrollDown(ctx); err != nil {
 				return nil, err
 			}
 			time.Sleep(500 * time.Millisecond)

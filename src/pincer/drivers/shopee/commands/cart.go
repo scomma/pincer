@@ -43,6 +43,9 @@ func CartList(ctx context.Context, driver *shopee.ShopeeDriver) (*CartListResult
 	const maxScrolls = 10
 
 	for scroll := 0; scroll <= maxScrolls; scroll++ {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		finder, err := driver.Workflow.FreshDump(ctx)
 		if err != nil {
 			return nil, err
@@ -63,7 +66,7 @@ func CartList(ctx context.Context, driver *shopee.ShopeeDriver) (*CartListResult
 		}
 
 		if scroll < maxScrolls {
-			if err := driver.Dev.Swipe(ctx, 540, 1600, 540, 800, 300); err != nil {
+			if err := driver.Workflow.ScrollDown(ctx); err != nil {
 				return nil, err
 			}
 			time.Sleep(500 * time.Millisecond)

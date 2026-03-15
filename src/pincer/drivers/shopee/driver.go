@@ -106,11 +106,9 @@ func (b *ShopeeDriver) NavigateToCart(ctx context.Context) error {
 			return err
 		}
 
-		// Unknown screen — restart app and retry.
-		if err := b.EnsureAppRunning(ctx); err != nil {
+		if err := b.Workflow.BackOrRelaunch(ctx, PackageName); err != nil {
 			return err
 		}
-		time.Sleep(2 * time.Second)
 	}
 	return core.ErrNavigation()
 }
@@ -121,7 +119,6 @@ func (b *ShopeeDriver) NavigateToHome(ctx context.Context) error {
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		finder, err := b.Workflow.FreshDump(ctx)
 		if err != nil {
-			// Transient ADB error — retry after a brief pause.
 			time.Sleep(1 * time.Second)
 			continue
 		}
@@ -130,26 +127,9 @@ func (b *ShopeeDriver) NavigateToHome(ctx context.Context) error {
 			return nil
 		}
 
-		// Try pressing back to return to home.
-		if err := b.Dev.KeyEvent(ctx, "KEYCODE_BACK"); err != nil {
+		if err := b.Workflow.BackOrRelaunch(ctx, PackageName); err != nil {
 			return err
 		}
-		time.Sleep(1 * time.Second)
-
-		finder, err = b.Workflow.FreshDump(ctx)
-		if err != nil {
-			time.Sleep(1 * time.Second)
-			continue
-		}
-		if DetectScreen(finder) == ScreenHome {
-			return nil
-		}
-
-		// Restart the app as a last resort.
-		if err := b.EnsureAppRunning(ctx); err != nil {
-			return err
-		}
-		time.Sleep(2 * time.Second)
 	}
 	return core.ErrNavigation()
 }

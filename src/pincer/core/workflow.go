@@ -71,9 +71,33 @@ func (w *Workflow) WaitForPackage(ctx context.Context, pkg string, timeout time.
 	return fmt.Errorf("package %s not in foreground within %v", pkg, timeout)
 }
 
+// Swipe coordinates assuming a 1080×2400 screen. Centralized so there's
+// one place to change when supporting different screen resolutions.
+const (
+	SwipeX     = 540
+	SwipeDownY1 = 1600
+	SwipeDownY2 = 800
+	SwipeUpY1   = 400
+	SwipeUpY2   = 1600
+	SwipeDurMS  = 300
+)
+
+// ScrollDown performs a downward scroll gesture.
+func (w *Workflow) ScrollDown(ctx context.Context) error {
+	return w.Dev.Swipe(ctx, SwipeX, SwipeDownY1, SwipeX, SwipeDownY2, SwipeDurMS)
+}
+
+// ScrollUp performs an upward scroll gesture.
+func (w *Workflow) ScrollUp(ctx context.Context) error {
+	return w.Dev.Swipe(ctx, SwipeX, SwipeUpY1, SwipeX, SwipeUpY2, SwipeDurMS)
+}
+
 // ScrollUntil scrolls the screen until the match function returns true or the limit is reached.
 func (w *Workflow) ScrollUntil(ctx context.Context, match func(*ElementFinder) bool, limit int) error {
 	for i := 0; i < limit; i++ {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		finder, err := w.FreshDump(ctx)
 		if err != nil {
 			return err
@@ -81,13 +105,27 @@ func (w *Workflow) ScrollUntil(ctx context.Context, match func(*ElementFinder) b
 		if match(finder) {
 			return nil
 		}
-		// Swipe up to scroll down
-		if err := w.Dev.Swipe(ctx, 540, 1600, 540, 800, 300); err != nil {
+		if err := w.ScrollDown(ctx); err != nil {
 			return err
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
 	return fmt.Errorf("condition not met after %d scrolls", limit)
+}
+
+// BackOrRelaunch presses back and re-launches the app if back left it.
+// Used by navigation methods to recover from unknown screens.
+func (w *Workflow) BackOrRelaunch(ctx context.Context, pkg string) error {
+	if err := w.Dev.KeyEvent(ctx, "KEYCODE_BACK"); err != nil {
+		return err
+	}
+	time.Sleep(2 * time.Second)
+
+	current, _ := w.Dev.CurrentPackage(ctx)
+	if current != pkg {
+		return w.EnsureApp(ctx, pkg, 10*time.Second)
+	}
+	return nil
 }
 
 // Retry retries an operation up to the given number of attempts.

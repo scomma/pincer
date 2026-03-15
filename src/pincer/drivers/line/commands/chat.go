@@ -43,6 +43,9 @@ func ChatList(ctx context.Context, driver *line.LineDriver, unreadOnly bool, lim
 	const maxScrolls = 5
 
 	for scroll := 0; scroll <= maxScrolls; scroll++ {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		finder, err := driver.Workflow.FreshDump(ctx)
 		if err != nil {
 			return nil, err
@@ -64,7 +67,7 @@ func ChatList(ctx context.Context, driver *line.LineDriver, unreadOnly bool, lim
 		}
 
 		if scroll < maxScrolls {
-			if err := driver.Dev.Swipe(ctx, 540, 1600, 540, 800, 300); err != nil {
+			if err := driver.Workflow.ScrollDown(ctx); err != nil {
 				return nil, err
 			}
 			time.Sleep(500 * time.Millisecond)
@@ -179,6 +182,44 @@ type ChatReadResult struct {
 	Messages []Message `json:"messages"`
 }
 
+// scrollToTopAndFindChat scrolls up to the top of the chat list, then
+// scrolls down looking for a chat by exact name. Returns the element if
+// found, or an error.
+func scrollToTopAndFindChat(ctx context.Context, driver *line.LineDriver, chatName string) (*core.Element, error) {
+	// Scroll to the top first (previous commands may have scrolled down).
+	for i := 0; i < 3; i++ {
+		if err := driver.Workflow.ScrollUp(ctx); err != nil {
+			return nil, err
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+
+	// Scroll down looking for the target chat.
+	const maxScrolls = 10
+	for scroll := 0; scroll <= maxScrolls; scroll++ {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
+		finder, err := driver.Workflow.FreshDump(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		if el := finder.ByText(chatName, true); el != nil {
+			return el, nil
+		}
+
+		if scroll < maxScrolls {
+			if err := driver.Workflow.ScrollDown(ctx); err != nil {
+				return nil, err
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
+	return nil, core.NewDriverError("chat_not_found", "Chat '"+chatName+"' not found after scrolling")
+}
+
 // ChatRead executes the `line chat read` command.
 func ChatRead(ctx context.Context, driver *line.LineDriver, chatName string, limit int) (*ChatReadResult, error) {
 	if err := driver.EnsureAppRunning(ctx); err != nil {
@@ -189,46 +230,17 @@ func ChatRead(ctx context.Context, driver *line.LineDriver, chatName string, lim
 		return nil, fmt.Errorf("navigate to chats: %w", err)
 	}
 
-	// Scroll up to the top of the chat list first (previous commands may
-	// have scrolled it down), then scroll down looking for the target chat.
-	for i := 0; i < 3; i++ {
-		_ = driver.Dev.Swipe(ctx, 540, 400, 540, 1600, 200)
-		time.Sleep(300 * time.Millisecond)
+	chatEl, err := scrollToTopAndFindChat(ctx, driver, chatName)
+	if err != nil {
+		return nil, err
 	}
 
-	// Look for the target chat, scrolling down if needed.
-	const maxScrolls = 10
-	for scroll := 0; scroll <= maxScrolls; scroll++ {
-		finder, err := driver.Workflow.FreshDump(ctx)
-		if err != nil {
-			return nil, err
-		}
-
-		chatEl := finder.ByText(chatName, true)
-		if chatEl != nil {
-			c := chatEl.Center()
-			if err := driver.Dev.Tap(ctx, c.X, c.Y); err != nil {
-				return nil, err
-			}
-			goto chatOpened
-		}
-
-		if scroll < maxScrolls {
-			if err := driver.Dev.Swipe(ctx, 540, 1600, 540, 800, 300); err != nil {
-				return nil, err
-			}
-			time.Sleep(500 * time.Millisecond)
-		}
+	if err := chatEl.Tap(ctx, driver.Dev); err != nil {
+		return nil, err
 	}
-	return nil, core.NewDriverError("chat_not_found", "Chat '"+chatName+"' not found after scrolling")
 
-chatOpened:
 	// Wait for chat detail screen to load.
-	_, _ = driver.Workflow.WaitForElement(ctx, 5*time.Second, func(e *core.Element) bool {
-		return e.ResourceID == "jp.naver.line.android:id/chathistory_message_edit_text" ||
-			e.ResourceID == "jp.naver.line.android:id/chat_ui_message_edit" ||
-			e.ResourceID == "jp.naver.line.android:id/chathistory_message_list"
-	})
+	_, _ = driver.Workflow.WaitForElement(ctx, 5*time.Second, isChatDetail)
 
 	detailFinder, err := driver.Workflow.FreshDump(ctx)
 	if err != nil {
@@ -244,6 +256,16 @@ chatOpened:
 		ChatName: chatName,
 		Messages: messages,
 	}, nil
+}
+
+// isChatDetail matches elements that indicate the LINE chat detail screen.
+var isChatDetail core.Predicate = func(e *core.Element) bool {
+	for _, id := range line.ChatDetailIDs {
+		if e.ResourceID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func parseChatMessages(finder *core.ElementFinder) []Message {

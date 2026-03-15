@@ -80,13 +80,12 @@ func (a *ADB) DumpUI(ctx context.Context) (string, error) {
 
 		xml := string(out)
 
-		// If the dump contains only SystemUI elements (lock screen, notification
-		// shade), the app's UI tree wasn't captured — usually because the app
-		// wasn't idle. Wait and retry.
+		// If every package in the dump is SystemUI, the app's UI tree wasn't
+		// captured — usually because the app wasn't idle. Wait and retry.
+		// We check for non-system packages rather than maintaining an
+		// allowlist of supported app packages.
 		if strings.Contains(xml, "com.android.systemui") &&
-			!strings.Contains(xml, "com.grabtaxi") &&
-			!strings.Contains(xml, "com.shopee") &&
-			!strings.Contains(xml, "jp.naver.line") {
+			!containsNonSystemPackage(xml) {
 			lastErr = fmt.Errorf("dump captured SystemUI instead of app (attempt %d)", attempt+1)
 			time.Sleep(2 * time.Second)
 			continue
@@ -180,6 +179,27 @@ func (a *ADB) CurrentPackage(ctx context.Context) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("could not determine current package from: %s", out)
+}
+
+// containsNonSystemPackage returns true if the XML dump contains any
+// package attribute that isn't a system/framework package.
+func containsNonSystemPackage(xml string) bool {
+	// Look for package="..." attributes that aren't android system packages.
+	for _, seg := range strings.Split(xml, "package=\"") {
+		idx := strings.Index(seg, "\"")
+		if idx <= 0 {
+			continue
+		}
+		pkg := seg[:idx]
+		if pkg != "" &&
+			!strings.HasPrefix(pkg, "com.android.") &&
+			!strings.HasPrefix(pkg, "android") &&
+			!strings.HasPrefix(pkg, "com.google.android.inputmethod") &&
+			!strings.HasPrefix(pkg, "com.google.android.apps.nexuslauncher") {
+			return true
+		}
+	}
+	return false
 }
 
 // IsScreenOn checks whether the device display is currently on.

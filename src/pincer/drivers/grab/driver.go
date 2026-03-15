@@ -150,21 +150,8 @@ func (b *GrabDriver) NavigateToFoodHome(ctx context.Context) error {
 				core.HasID("com.grabtaxi.passenger:id/search_bar_clickable_area"))
 			return err
 		default:
-			// Unknown screen inside the app — try pressing back first.
-			// Many sub-screens (restaurant detail, grocery listing, promos)
-			// resolve to the food home after one or two presses.
-			if err := b.Dev.KeyEvent(ctx, "KEYCODE_BACK"); err != nil {
+			if err := b.Workflow.BackOrRelaunch(ctx, PackageName); err != nil {
 				return err
-			}
-			time.Sleep(2 * time.Second)
-
-			// If back left the app entirely, re-launch it.
-			current, _ := b.Dev.CurrentPackage(ctx)
-			if current != PackageName {
-				if err := b.EnsureAppRunning(ctx); err != nil {
-					return err
-				}
-				time.Sleep(2 * time.Second)
 			}
 		}
 	}

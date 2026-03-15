@@ -59,16 +59,23 @@ func (b *LineDriver) EnsureLoggedIn(ctx context.Context) (bool, error) {
 	return false, nil
 }
 
+// ChatDetailIDs are resource IDs that indicate the LINE chat detail screen.
+// Checked in both DetectScreen and command-level waits.
+var ChatDetailIDs = []string{
+	"jp.naver.line.android:id/chathistory_message_edit_text",
+	"jp.naver.line.android:id/chat_ui_message_edit",
+	"jp.naver.line.android:id/chathistory_message_list",
+}
+
 // DetectScreen determines which LINE screen is currently displayed.
 func DetectScreen(finder *core.ElementFinder) Screen {
 	if finder.ByID("jp.naver.line.android:id/chat_list_recycler_view") != nil {
 		return ScreenChats
 	}
-	// Chat detail: check multiple possible IDs across LINE versions.
-	if finder.ByID("jp.naver.line.android:id/chathistory_message_edit_text") != nil ||
-		finder.ByID("jp.naver.line.android:id/chat_ui_message_edit") != nil ||
-		finder.ByID("jp.naver.line.android:id/chathistory_message_list") != nil {
-		return ScreenChatDetail
+	for _, id := range ChatDetailIDs {
+		if finder.ByID(id) != nil {
+			return ScreenChatDetail
+		}
 	}
 	return ScreenUnknown
 }
@@ -102,19 +109,8 @@ func (b *LineDriver) NavigateToChats(ctx context.Context) error {
 			return err
 		}
 
-		// Unknown or chat detail screen — press back to reach the chat list.
-		if err := b.Dev.KeyEvent(ctx, "KEYCODE_BACK"); err != nil {
+		if err := b.Workflow.BackOrRelaunch(ctx, PackageName); err != nil {
 			return err
-		}
-		time.Sleep(2 * time.Second)
-
-		// If back left the app entirely, re-launch it.
-		current, _ := b.Dev.CurrentPackage(ctx)
-		if current != PackageName {
-			if err := b.EnsureAppRunning(ctx); err != nil {
-				return err
-			}
-			time.Sleep(2 * time.Second)
 		}
 	}
 	return core.ErrNavigation()

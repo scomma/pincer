@@ -52,6 +52,9 @@ func FoodSearch(ctx context.Context, driver *grab.GrabDriver, query string) (*Fo
 	const maxScrolls = 5
 
 	for scroll := 0; scroll <= maxScrolls; scroll++ {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		finder, err := driver.Workflow.FreshDump(ctx)
 		if err != nil {
 			return nil, err
@@ -71,7 +74,7 @@ func FoodSearch(ctx context.Context, driver *grab.GrabDriver, query string) (*Fo
 		}
 
 		if scroll < maxScrolls {
-			if err := driver.Dev.Swipe(ctx, 540, 1600, 540, 800, 300); err != nil {
+			if err := driver.Workflow.ScrollDown(ctx); err != nil {
 				return nil, err
 			}
 			time.Sleep(500 * time.Millisecond)
@@ -87,6 +90,10 @@ func FoodSearch(ctx context.Context, driver *grab.GrabDriver, query string) (*Fo
 func findSearchBar(ctx context.Context, driver *grab.GrabDriver) (*core.Element, error) {
 	// The search bar hides when scrolled down. Scroll up to reveal it.
 	for i := 0; i < 4; i++ {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
 		finder, err := driver.Workflow.FreshDump(ctx)
 		if err != nil {
 			return nil, err
@@ -100,8 +107,7 @@ func findSearchBar(ctx context.Context, driver *grab.GrabDriver) (*core.Element,
 			return bar, nil
 		}
 
-		// Swipe down-to-up to scroll the page up.
-		if err := driver.Dev.Swipe(ctx, 540, 400, 540, 1600, 300); err != nil {
+		if err := driver.Workflow.ScrollUp(ctx); err != nil {
 			return nil, err
 		}
 		time.Sleep(500 * time.Millisecond)
