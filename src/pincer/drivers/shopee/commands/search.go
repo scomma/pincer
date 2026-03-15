@@ -66,8 +66,12 @@ func Search(ctx context.Context, driver *shopee.ShopeeDriver, query string) (*Se
 	_, _ = driver.Workflow.WaitForElement(ctx, 3*time.Second, func(e *core.Element) bool {
 		return e.Focused && e.Class == "android.widget.EditText"
 	})
+	// Hide the soft keyboard before adb text injection. On this device,
+	// leaving Gboard visible causes the field value to mutate.
+	_ = driver.Dev.KeyEvent(ctx, "KEYCODE_BACK")
+	time.Sleep(200 * time.Millisecond)
 
-	if err := driver.Dev.TypeText(ctx, query); err != nil {
+	if err := typeVerifiedShopeeQuery(ctx, driver, query); err != nil {
 		return nil, err
 	}
 	if err := driver.Dev.KeyEvent(ctx, "KEYCODE_ENTER"); err != nil {
@@ -258,4 +262,45 @@ func searchResultContainer(el *core.Element) *core.Element {
 		}
 	}
 	return el.Parent
+}
+
+func typeVerifiedShopeeQuery(ctx context.Context, driver *shopee.ShopeeDriver, query string) error {
+	const maxAttempts = 3
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if err := driver.Dev.ClearField(ctx); err != nil {
+			return err
+		}
+		time.Sleep(200 * time.Millisecond)
+
+		if err := driver.Dev.TypeText(ctx, query); err != nil {
+			return err
+		}
+		time.Sleep(250 * time.Millisecond)
+
+		matches, err := shopeeQueryMatchesInput(ctx, driver, query)
+		if err != nil {
+			return err
+		}
+		if matches {
+			return nil
+		}
+	}
+
+	return core.NewDriverError("input_mismatch", "search query did not match the text entered in Shopee")
+}
+
+func shopeeQueryMatchesInput(ctx context.Context, driver *shopee.ShopeeDriver, query string) (bool, error) {
+	finder, err := driver.Workflow.FreshDump(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	current := finder.First(func(e *core.Element) bool {
+		return e.Class == "android.widget.EditText" && strings.TrimSpace(e.Text) != ""
+	})
+	if current == nil {
+		return false, nil
+	}
+
+	return strings.EqualFold(strings.TrimSpace(current.Text), strings.TrimSpace(query)), nil
 }

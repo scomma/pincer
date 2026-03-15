@@ -41,11 +41,25 @@ func FoodSearch(ctx context.Context, driver *grab.GrabDriver, query string) (*Fo
 		if err := performSearch(ctx, driver, query); err != nil {
 			return nil, err
 		}
-		// Wait for search results to load.
+		// Wait for search results to load, and prefer the restaurant-only view
+		// when Grab offers a separate "see all restaurants" affordance.
 		_, _ = driver.Workflow.WaitForElement(ctx, 5*time.Second, func(e *core.Element) bool {
-			return e.ResourceID == "com.grabtaxi.passenger:id/duxton_card" ||
+			return e.ResourceID == "com.grabtaxi.passenger:id/duxton_see_all_restaurants" ||
+				e.ResourceID == "com.grabtaxi.passenger:id/duxton_card" ||
 				e.ResourceID == "com.grabtaxi.passenger:id/horizontal_merchant_card"
 		})
+
+		finder, err := driver.Workflow.FreshDump(ctx)
+		if err == nil {
+			if seeAll := finder.ByID("com.grabtaxi.passenger:id/duxton_see_all_restaurants"); seeAll != nil {
+				if err := seeAll.Tap(ctx, driver.Dev); err == nil {
+					_, _ = driver.Workflow.WaitForElement(ctx, 5*time.Second, func(e *core.Element) bool {
+						return e.ResourceID == "com.grabtaxi.passenger:id/duxton_card" ||
+							e.ResourceID == "com.grabtaxi.passenger:id/horizontal_merchant_card"
+					})
+				}
+			}
+		}
 	}
 
 	// Collect restaurants across multiple screens by scrolling.
@@ -132,6 +146,10 @@ func performSearch(ctx context.Context, driver *grab.GrabDriver, query string) e
 	_, _ = driver.Workflow.WaitForElement(ctx, 3*time.Second, func(e *core.Element) bool {
 		return e.Focused && e.Class == "android.widget.EditText"
 	})
+	// Hide the soft keyboard before adb text injection. On this device,
+	// leaving Gboard visible causes the field value to mutate.
+	_ = driver.Dev.KeyEvent(ctx, "KEYCODE_BACK")
+	time.Sleep(200 * time.Millisecond)
 
 	// Clear any leftover text from previous searches.
 	if err := driver.Dev.ClearField(ctx); err != nil {
@@ -145,9 +163,16 @@ func performSearch(ctx context.Context, driver *grab.GrabDriver, query string) e
 		return err
 	}
 
-	// Grab shows search suggestions after typing. Tap "See results for ..."
-	// to execute the actual search (ENTER just shows suggestions).
-	time.Sleep(1200 * time.Millisecond)
+	// Submit immediately before the keyboard/autocomplete mutates the input.
+	if err := driver.Dev.KeyEvent(ctx, "KEYCODE_ENTER"); err != nil {
+		return err
+	}
+	if _, err := driver.Workflow.WaitForElement(ctx, 1200*time.Millisecond, func(e *core.Element) bool {
+		return e.ResourceID == "com.grabtaxi.passenger:id/duxton_card" ||
+			e.ResourceID == "com.grabtaxi.passenger:id/horizontal_merchant_card"
+	}); err == nil {
+		return nil
+	}
 
 	finder, err := driver.Workflow.FreshDump(ctx)
 	if err != nil {
@@ -166,8 +191,7 @@ func performSearch(ctx context.Context, driver *grab.GrabDriver, query string) e
 		return exactSuggestion.Tap(ctx, driver.Dev)
 	}
 
-	// Fallback: try pressing enter.
-	return driver.Dev.KeyEvent(ctx, "KEYCODE_ENTER")
+	return nil
 }
 
 // parseRestaurantCards extracts restaurant info from card elements.
@@ -205,7 +229,7 @@ func parseCard(card *core.Element) Restaurant {
 		}
 		if score := restaurantNameScore(t); score > bestScore {
 			bestScore = score
-			r.Name = t
+			r.Name = cleanRestaurantName(t)
 		}
 	}
 
@@ -284,6 +308,10 @@ func hasLetter(text string) bool {
 		}
 	}
 	return false
+}
+
+func cleanRestaurantName(text string) string {
+	return strings.TrimSpace(strings.TrimPrefix(text, "Ad   "))
 }
 
 func nearestClickable(el *core.Element) *core.Element {

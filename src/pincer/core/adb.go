@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os/exec"
 	"strconv"
@@ -29,6 +30,8 @@ type Device interface {
 type ADB struct {
 	DeviceID string
 }
+
+const adbKeyboardID = "com.android.adbkeyboard/.AdbIME"
 
 // NewADB creates a new ADB instance. If deviceID is empty, uses the default device.
 func NewADB(deviceID string) *ADB {
@@ -138,6 +141,9 @@ func (a *ADB) ClearField(ctx context.Context) error {
 // because it avoids mid-word autocomplete races; fall back to slower,
 // per-character entry if the fast path errors.
 func (a *ADB) TypeText(ctx context.Context, text string) error {
+	if err := a.typeWithADBKeyboard(ctx, text); err == nil {
+		return nil
+	}
 	if _, err := a.run(ctx, "shell", "input", "text", escapeADBInputText(text)); err == nil {
 		return nil
 	}
@@ -159,6 +165,49 @@ func (a *ADB) TypeText(ctx context.Context, text string) error {
 		time.Sleep(90 * time.Millisecond)
 	}
 	return nil
+}
+
+func (a *ADB) typeWithADBKeyboard(ctx context.Context, text string) error {
+	originalIME, err := a.currentInputMethod(ctx)
+	if err != nil {
+		return err
+	}
+
+	restore := func() error {
+		if strings.TrimSpace(originalIME) == "" || strings.TrimSpace(originalIME) == adbKeyboardID {
+			return nil
+		}
+		if _, err := a.run(ctx, "shell", "ime", "set", strings.TrimSpace(originalIME)); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	if _, err := a.run(ctx, "shell", "ime", "enable", adbKeyboardID); err != nil &&
+		!strings.Contains(err.Error(), "already enabled") {
+		return err
+	}
+	if _, err := a.run(ctx, "shell", "ime", "set", adbKeyboardID); err != nil {
+		return err
+	}
+	defer func() {
+		_ = restore()
+	}()
+
+	encoded := base64.StdEncoding.EncodeToString([]byte(text))
+	if _, err := a.run(ctx, "shell", "am", "broadcast", "-a", "ADB_INPUT_B64", "--es", "msg", encoded); err != nil {
+		return err
+	}
+	time.Sleep(150 * time.Millisecond)
+	return nil
+}
+
+func (a *ADB) currentInputMethod(ctx context.Context) (string, error) {
+	out, err := a.Shell(ctx, "settings get secure default_input_method")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
 }
 
 func (a *ADB) typeRune(ctx context.Context, r rune) error {
