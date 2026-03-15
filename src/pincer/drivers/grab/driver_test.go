@@ -1,7 +1,9 @@
 package grab
 
 import (
+	"context"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/prathan/pincer/src/pincer/core"
@@ -52,5 +54,61 @@ func TestDetectScreenFoodResults(t *testing.T) {
 	screen := DetectScreen(finder)
 	if screen != ScreenFoodResults {
 		t.Errorf("expected FOOD_RESULTS, got %s", screen)
+	}
+}
+
+func TestDetectScreenGuestLogin(t *testing.T) {
+	const guestLoginXML = `<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>
+<hierarchy rotation="0">
+  <node index="0" text="" resource-id="" class="android.widget.FrameLayout" package="com.grabtaxi.passenger" bounds="[0,0][1080,2400]">
+    <node index="0" text="" resource-id="com.grabtaxi.passenger:id/simple_guest_login_view_title" class="android.widget.TextView" package="com.grabtaxi.passenger" bounds="[63,1897][1017,1972]"/>
+    <node index="1" text="" resource-id="com.grabtaxi.passenger:id/simple_guest_login_view_signup" class="android.view.ViewGroup" package="com.grabtaxi.passenger" clickable="true" bounds="[63,2162][519,2306]">
+      <node index="0" text="Sign Up" resource-id="" class="android.widget.TextView" package="com.grabtaxi.passenger" bounds="[213,2204][370,2264]"/>
+    </node>
+    <node index="2" text="" resource-id="com.grabtaxi.passenger:id/simple_guest_login_view_login" class="android.view.ViewGroup" package="com.grabtaxi.passenger" clickable="true" bounds="[561,2162][1017,2306]">
+      <node index="0" text="Log In" resource-id="" class="android.widget.TextView" package="com.grabtaxi.passenger" bounds="[727,2204][851,2264]"/>
+    </node>
+  </node>
+</hierarchy>`
+
+	finder, err := core.NewElementFinderFromXML([]byte(guestLoginXML))
+	if err != nil {
+		t.Fatalf("parsing: %v", err)
+	}
+
+	if screen := DetectScreen(finder); screen != ScreenLoginGuest {
+		t.Fatalf("expected LOGIN_GUEST, got %s", screen)
+	}
+}
+
+func TestEnsureLoggedInGuestLogin(t *testing.T) {
+	const guestLoginXML = `<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>
+<hierarchy rotation="0">
+  <node index="0" text="" resource-id="" class="android.widget.FrameLayout" package="com.grabtaxi.passenger" bounds="[0,0][1080,2400]">
+    <node index="0" text="" resource-id="com.grabtaxi.passenger:id/simple_guest_login_view_title" class="android.widget.TextView" package="com.grabtaxi.passenger" bounds="[63,1897][1017,1972]"/>
+    <node index="1" text="" resource-id="com.grabtaxi.passenger:id/simple_guest_login_view_login" class="android.view.ViewGroup" package="com.grabtaxi.passenger" clickable="true" bounds="[561,2162][1017,2306]">
+      <node index="0" text="Log In" resource-id="" class="android.widget.TextView" package="com.grabtaxi.passenger" bounds="[727,2204][851,2264]"/>
+    </node>
+  </node>
+</hierarchy>`
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "grab_guest_login.xml")
+	if err := os.WriteFile(path, []byte(guestLoginXML), 0o644); err != nil {
+		t.Fatalf("writing fixture: %v", err)
+	}
+
+	mock := core.NewMockDevice(path, PackageName)
+	driver, err := NewGrabDriver(mock)
+	if err != nil {
+		t.Fatalf("new driver: %v", err)
+	}
+
+	loggedIn, err := driver.EnsureLoggedIn(context.Background())
+	if err != nil {
+		t.Fatalf("ensure logged in: %v", err)
+	}
+	if loggedIn {
+		t.Fatalf("expected logged out on guest login sheet")
 	}
 }

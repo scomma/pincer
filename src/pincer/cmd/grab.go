@@ -79,7 +79,7 @@ var grabAuthStatusCmd = &cobra.Command{
 	Long: `Check whether the user is logged in to the Grab app.
 Returns the current screen name and login state.
 
-Possible screens: HOME, FOOD_HOME, FOOD_RESULTS, LOGIN_PHONE, LOGIN_OTP, LOGIN_PIN, UNKNOWN.`,
+Possible screens: HOME, FOOD_HOME, FOOD_RESULTS, LOGIN_GUEST, LOGIN_PHONE, LOGIN_OTP, LOGIN_PIN, UNKNOWN.`,
 	Example: `  pincer grab auth status`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)

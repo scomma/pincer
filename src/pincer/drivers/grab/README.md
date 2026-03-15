@@ -18,6 +18,7 @@ Automates the Grab app for food delivery, transport, and payments. Currently imp
 | `HOME` | Service tiles visible, no search bar | `Food, double tap to select` content-desc + `Transport, double tap to select` |
 | `FOOD_HOME` | Search bar visible, no restaurant cards | `search_bar_clickable_area` ID present |
 | `FOOD_RESULTS` | Search bar + restaurant cards | `search_bar_clickable_area` + `duxton_card` IDs |
+| `LOGIN_GUEST` | Guest login/signup bottom sheet | `simple_guest_login_view_login` / `simple_guest_login_view_signup` IDs or "Let's get you in!" text |
 | `LOGIN_PHONE` | Phone input | "Continue With Mobile Number" text |
 | `LOGIN_OTP` | OTP input | "Enter the 6-digit code" text |
 | `LOGIN_PIN` | PIN input | "Enter your PIN" text |
@@ -65,8 +66,8 @@ $ pincer grab auth status
 {
   "ok": true,
   "data": {
-    "logged_in": true,
-    "screen": "FOOD_RESULTS"
+    "logged_in": false,
+    "screen": "LOGIN_GUEST"
   }
 }
 ```

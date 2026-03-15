@@ -21,6 +21,7 @@ const (
 	ScreenFoodResults Screen = "FOOD_RESULTS"
 	ScreenFoodSearch  Screen = "FOOD_SEARCH"
 	ScreenRestaurant  Screen = "RESTAURANT"
+	ScreenLoginGuest  Screen = "LOGIN_GUEST"
 	ScreenLoginPhone  Screen = "LOGIN_PHONE"
 	ScreenLoginOTP    Screen = "LOGIN_OTP"
 	ScreenLoginPIN    Screen = "LOGIN_PIN"
@@ -60,18 +61,19 @@ func (b *GrabDriver) EnsureLoggedIn(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	screen := DetectScreen(finder)
-	switch screen {
-	case ScreenLoginPhone, ScreenLoginOTP, ScreenLoginPIN:
-		return false, nil
-	default:
-		return true, nil
-	}
+	return !isLoggedOutScreen(DetectScreen(finder)), nil
 }
 
 // DetectScreen determines which Grab screen is currently displayed.
 func DetectScreen(finder *core.ElementFinder) Screen {
 	// Check for login screens first
+	if finder.ByID("com.grabtaxi.passenger:id/simple_guest_login_view_login") != nil ||
+		finder.ByID("com.grabtaxi.passenger:id/simple_guest_login_view_signup") != nil ||
+		finder.ByID("com.grabtaxi.passenger:id/simple_guest_login_view_title") != nil ||
+		finder.ByText("Let’s get you in!", false) != nil ||
+		finder.ByText("Let's get you in!", false) != nil {
+		return ScreenLoginGuest
+	}
 	if finder.ByText("Continue With Mobile Number", true) != nil {
 		return ScreenLoginPhone
 	}
@@ -112,6 +114,15 @@ func DetectScreen(finder *core.ElementFinder) Screen {
 	return ScreenUnknown
 }
 
+func isLoggedOutScreen(screen Screen) bool {
+	switch screen {
+	case ScreenLoginGuest, ScreenLoginPhone, ScreenLoginOTP, ScreenLoginPIN:
+		return true
+	default:
+		return false
+	}
+}
+
 // NavigateToFoodHome navigates from wherever we are to the Food home screen.
 func (b *GrabDriver) NavigateToFoodHome(ctx context.Context) error {
 	const maxRetries = 5
@@ -134,6 +145,8 @@ func (b *GrabDriver) NavigateToFoodHome(ctx context.Context) error {
 			}
 			time.Sleep(1 * time.Second)
 			continue
+		case ScreenLoginGuest, ScreenLoginPhone, ScreenLoginOTP, ScreenLoginPIN:
+			return core.ErrNotLoggedIn()
 		case ScreenHome:
 			foodTile := finder.First(core.HasContentDesc("Food, double tap to select"))
 			if foodTile == nil {

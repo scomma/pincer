@@ -26,9 +26,11 @@ func AuthStatus(ctx context.Context, driver *grab.GrabDriver) (*AuthStatusResult
 	}
 
 	screen := grab.DetectScreen(finder)
-	loggedIn := screen != grab.ScreenLoginPhone &&
-		screen != grab.ScreenLoginOTP &&
-		screen != grab.ScreenLoginPIN
+	loggedIn := true
+	switch screen {
+	case grab.ScreenLoginGuest, grab.ScreenLoginPhone, grab.ScreenLoginOTP, grab.ScreenLoginPIN:
+		loggedIn = false
+	}
 
 	return &AuthStatusResult{
 		LoggedIn: loggedIn,
