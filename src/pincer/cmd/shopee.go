@@ -25,7 +25,8 @@ var shopeeCartCmd = &cobra.Command{
 	Short: "Shopee cart commands",
 	Example: `  pincer shopee cart list
   pincer shopee cart update --item "COCOFON Organic Toilet" --quantity 3
-  pincer shopee cart remove --item "COCOFON Organic Toilet"`,
+  pincer shopee cart remove --item "COCOFON Organic Toilet"
+  pincer shopee cart checkout --max-total 100`,
 }
 
 var shopeeCartListCmd = &cobra.Command{
@@ -168,6 +169,41 @@ section, and taps the Delete button.`,
 	},
 }
 
+var shopeeCartCheckoutCmd = &cobra.Command{
+	Use:   "checkout",
+	Short: "Select all cart items, go to checkout, and return the quotation",
+	Long: `Select all items in the cart, proceed to the checkout page, parse the
+order quotation (totals, shipping, vouchers), and return it as JSON.
+
+SAFETY: This command NEVER taps Place Order. It reads the quotation and
+presses Back to exit. Two price-limit checks are performed: once from
+the cart subtotal and once from the checkout total.`,
+	Example: `  pincer shopee cart checkout
+  pincer shopee cart checkout --max-total 500
+  pincer shopee cart checkout | jq '.data.total'`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		maxTotal, _ := cmd.Flags().GetFloat64("max-total")
+
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
+		defer cancel()
+
+		driver, err := shopee.NewShopeeDriver(newADB())
+		if err != nil {
+			outputError(err)
+			return nil
+		}
+
+		result, err := commands.CartCheckout(ctx, driver, maxTotal)
+		if err != nil {
+			outputError(err)
+			return nil
+		}
+
+		outputJSON(core.NewResponse(result))
+		return nil
+	},
+}
+
 func init() {
 	shopeeSearchCmd.Flags().StringP("query", "q", "", "Search query (required)")
 
@@ -176,7 +212,9 @@ func init() {
 
 	shopeeCartRemoveCmd.Flags().StringP("item", "i", "", "Item name to search for (required)")
 
-	shopeeCartCmd.AddCommand(shopeeCartListCmd, shopeeCartUpdateCmd, shopeeCartRemoveCmd)
+	shopeeCartCheckoutCmd.Flags().Float64("max-total", commands.DefaultMaxTotal, "Maximum total (THB) safety limit")
+
+	shopeeCartCmd.AddCommand(shopeeCartListCmd, shopeeCartUpdateCmd, shopeeCartRemoveCmd, shopeeCartCheckoutCmd)
 	shopeeCmd.AddCommand(shopeeCartCmd, shopeeSearchCmd)
 	rootCmd.AddCommand(shopeeCmd)
 }
