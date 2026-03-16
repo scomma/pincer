@@ -18,8 +18,7 @@ Automates the Shopee e-commerce app (Thai locale). Currently implements read-onl
 | `HOME` | Main feed visible | `com.shopee.th:id/homepage_main_recycler` ID |
 | `CART` | Cart page | "Shopping Cart" text |
 | `ME` | Profile page | "Edit Profile" text |
-| `SEARCH` | (declared, not yet detected) | — |
-| `ORDERS` | (declared, not yet detected) | — |
+| `UNKNOWN` | No current screen heuristic matched | — |
 
 ## Element ID quirks
 
@@ -42,6 +41,8 @@ Key cart element IDs (all bare):
 - `labelPriceBeforeDiscount` — original price (strikethrough)
 - `labelShopVoucherDiscountText` — voucher info
 - `buttonEdit` — edit button per shop group
+
+The search command probes several possible home-screen search affordances before failing: `com.shopee.th:id/search_bar`, `com.shopee.th:id/search_bar_cell`, `com.shopee.th:id/home_square_root`, then a focused `EditText` with a hint.
 
 ## Cart parsing logic
 
@@ -82,6 +83,31 @@ $ pincer shopee cart list
       }
     ],
     "count": 3
+  }
+}
+```
+
+```bash
+$ pincer shopee search --query "usb cable"
+```
+```json
+{
+  "ok": true,
+  "data": {
+    "products": [
+      {
+        "name": "Northstar Braided USB-C Cable 100W 1.5m Fast Charge",
+        "price": "฿129",
+        "discount": "-35%",
+        "sold": "2.3k sold"
+      },
+      {
+        "name": "Orbit Labs USB-A to USB-C Cable 2m Nylon",
+        "price": "฿89",
+        "sold": "857 sold"
+      }
+    ],
+    "query": "usb cable"
   }
 }
 ```

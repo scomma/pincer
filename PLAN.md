@@ -9,10 +9,10 @@ Build a framework for automating Android apps via their accessibility APIs, expo
 **Goal:** Let an LLM agent (or human) interact with apps like Grab, LINE, Shopee via simple commands like:
 
 ```bash
-pincer grab food search --query "lunch" --max-time 30
-pincer grab food menu --restaurant-id abc123
+pincer grab food search --query "lunch"
 pincer line chat list --unread
 pincer line chat read --chat "Family Direct" --limit 20
+pincer shopee cart list
 ```
 
 Output is always structured (JSON), never raw UI state.
@@ -139,27 +139,22 @@ Unified entry point with app subcommands:
 ```bash
 # Pattern: pincer <app> <domain> <action> [--options]
 
-# Grab
-pincer grab food search [--query TEXT] [--max-time MINS] [--cuisine TYPE]
-pincer grab food restaurants [--sort rating|time|distance]
-pincer grab food menu --restaurant-id ID
-pincer grab food order --restaurant-id ID --items JSON  # Later phase
-pincer grab food track [--order-id ID]  # Later phase
-pincer grab ride estimate --from ADDR --to ADDR  # Later phase
-pincer grab ride book --from ADDR --to ADDR [--type car|bike]  # Later phase
-pincer grab wallet balance  # Later phase
-
-# LINE  
+# Implemented today
+pincer grab food search [--query TEXT]
+pincer grab auth status
 pincer line chat list [--unread] [--limit N]
 pincer line chat read --chat NAME [--limit N]
-pincer line chat send --chat NAME --message TEXT  # Later phase
-pincer line chat search --query TEXT
+pincer shopee cart list
+pincer shopee search --query TEXT
 
-# Shopee
-pincer shopee cart list  # Later phase
-pincer shopee cart add --product-id ID [--quantity N]  # Later phase
-pincer shopee orders list [--status pending|shipped|delivered]  # Later phase
-pincer shopee search --query TEXT [--sort price|sales]  # Later phase
+# Future ideas
+pincer grab food menu --restaurant-id ID
+pincer grab food order --restaurant-id ID --items JSON
+pincer grab ride estimate --from ADDR --to ADDR
+pincer line chat send --chat NAME --message TEXT
+pincer line chat search --query TEXT
+pincer shopee orders list [--status pending|shipped|delivered]
+pincer shopee cart add --product-id ID [--quantity N]
 ```
 
 **Output:**
@@ -177,7 +172,7 @@ Always JSON to stdout. Errors as JSON to stderr with non-zero exit.
 {
   "ok": false,
   "error": "not_logged_in",
-  "message": "App requires login. Run: pincer grab auth login"
+  "message": "App requires login"
 }
 ```
 
@@ -192,11 +187,11 @@ Always JSON to stdout. Errors as JSON to stderr with non-zero exit.
 
 | Screen | Detection | Key Elements |
 |--------|-----------|--------------|
-| `HOME` | Has Food/Transport/Mart tiles | `tile_flat_view` with "Food" |
-| `FOOD_HOME` | Search bar + Delivery/Pickup tabs | "What shall we deliver?" |
-| `FOOD_RESULTS` | Restaurant list | `restaurant_list` or cards with ratings |
-| `RESTAURANT` | Menu items visible | Restaurant name header + menu items |
-| `CART` | Cart items + checkout | `cart_item` elements |
+| `HOME` | Has Food/Transport tiles and no food search bar | `Food, double tap to select` content-desc |
+| `FOOD_HOME` | Food landing screen | `search_bar_clickable_area` |
+| `FOOD_RESULTS` | Restaurant feed visible | `duxton_card` or `feedList` |
+| `FOOD_SEARCH` | Search overlay visible | `duxton_search_bar` |
+| `LOGIN_GUEST` | Guest login prompt | `simple_guest_login_view_login` or `Let's get you in!` |
 | `LOGIN_PHONE` | Phone input field | "Continue With Mobile Number" |
 | `LOGIN_OTP` | OTP input | "Enter the 6-digit code" |
 | `LOGIN_PIN` | PIN input | "Enter your PIN" |
@@ -206,22 +201,12 @@ Always JSON to stdout. Errors as JSON to stderr with non-zero exit.
 **`pincer grab food search`**
 1. Ensure screen: `FOOD_HOME`
 2. If query provided: tap search, type query, submit
-3. Parse restaurant cards: name, rating, time, distance, promos
+3. Parse restaurant cards: name and promo text
 4. Return structured list
 
-**`pincer grab food menu --restaurant-id ID`**
-1. Navigate to restaurant (may need to search first, or use deep link if available)
-2. Parse menu sections and items: name, price, description, modifiers
-3. Return structured menu
-
 **`pincer grab auth status`**
-1. Check if logged in (navigate to Account, see if profile loads)
-2. Return `{logged_in: bool, phone: str | null}`
-
-**`pincer grab auth login --phone NUMBER`**
-1. Navigate to login
-2. Enter phone, request OTP
-3. Return `{awaiting_otp: true}` — separate command to submit OTP
+1. Dump the current UI and run `DetectScreen`
+2. Return `{logged_in: bool, screen: string}`
 
 ---
 
@@ -238,8 +223,7 @@ LINE has good accessibility support. UIAutomator works well.
 | Screen | Detection |
 |--------|-----------|
 | `CHATS` | Chat list visible, "Chats" tab selected |
-| `CHAT_DETAIL` | Message list + input field |
-| `FRIENDS` | Friends tab selected |
+| `CHAT_DETAIL` | Message composer or history visible |
 
 ### Commands
 
@@ -280,7 +264,7 @@ type DriverError struct {
 
 ### Timeout
 
-Each command has default timeout (30s). Configurable via `--timeout`.
+Each command has default timeout (90s). Configurable via `--timeout`.
 
 ---
 
@@ -303,7 +287,7 @@ Persistence must be best-effort. Corrupt or stale cache entries should be ignore
 
 ```yaml
 device: SERIAL_OR_AUTO
-timeout_default: 30
+timeout_default: 90
 
 apps:
   grab:
@@ -340,23 +324,13 @@ apps:
 ### Phase 1: Framework + Grab Read Path
 1. Core libraries (adb, elements, workflow helpers, cache)
 2. CLI scaffold
-3. GrabDriver with:
-   - `pincer grab food search`
-   - `pincer grab food restaurants`
-   - `pincer grab food menu`
-   - `pincer grab auth status`
+3. GrabDriver with `pincer grab food search` and `pincer grab auth status`
 4. Tests with fixtures
 
 ### Phase 2: LINE + Shopee Read Path
-1. LineDriver with chat commands
-2. `pincer line chat list`
-3. `pincer line chat read`
-4. ShopeeDriver read-only exploration
-5. `pincer shopee cart list`
-6. `pincer shopee orders list [--status pending|shipped|delivered]`
-7. `pincer shopee search --query TEXT [--sort price|sales]`
-8. `pincer shopee cart add --product-id ID [--quantity N]`
-9. Tests
+1. LineDriver with `pincer line chat list` and `pincer line chat read`
+2. ShopeeDriver with `pincer shopee cart list` and `pincer shopee search --query TEXT`
+3. Tests
 
 ### Phase 3: Write Actions + Expanded Coverage
 1. `pincer line chat send`
@@ -402,25 +376,27 @@ pincer/
 ├── src/
 │   └── pincer/
 │       ├── main.go          # Entry point
+│       ├── cmd/             # Cobra CLI commands
 │       ├── core/
 │       │   ├── adb.go
+│       │   ├── device_mock.go
+│       │   ├── driver.go
 │       │   ├── elements.go
 │       │   ├── workflow.go
 │       │   └── cache.go
 │       └── drivers/
-│           ├── base.go
 │           ├── grab/
 │           │   ├── driver.go
 │           │   └── commands/
 │           │       ├── food.go
 │           │       └── auth.go
 │           ├── line/
-│           │   └── ...
+│           └── shopee/
 ├── tests/
-│   ├── fixtures/        # XML dumps, screenshots
-│   └── ...
-└── examples/
-    └── order_lunch.sh   # Demo script
+│   ├── fixtures/        # XML dumps
+│   ├── e2e_test.go
+│   ├── robustness_test.go
+│   └── live_test.py
 ```
 
 ---
@@ -431,14 +407,14 @@ An LLM agent should be able to:
 
 ```bash
 # Check what's for lunch
-pincer grab food search --max-time 30 | jq '.data.restaurants[:3]'
-
-# Inspect a menu
-pincer grab food menu --restaurant-id R123
+pincer grab food search | jq '.data.restaurants[:3]'
 
 # Read LINE messages
 pincer line chat list --unread
 pincer line chat read --chat "Work Group" --limit 10
+
+# Inspect Shopee cart contents
+pincer shopee cart list
 ```
 
 No screenshots. No coordinates. No "tap the third button." Just intent → structured response.

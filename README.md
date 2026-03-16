@@ -77,7 +77,7 @@ Each driver lives in `src/pincer/drivers/<app>/` and has its own README with com
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--device`, `-d` | auto-detect | ADB device serial |
-| `--timeout`, `-t` | 30 | Command timeout in seconds |
+| `--timeout`, `-t` | 90 | Command timeout in seconds |
 
 ## Architecture
 
@@ -117,10 +117,11 @@ go test ./...           # Run all tests
 go test ./... -v        # Verbose — shows parsed fixture data
 ```
 
-The test suite has three layers:
+The test suite has four layers:
 
 - **Unit tests** (`core/elements_test.go`, `drivers/*/`) — XML parsing, screen detection, element queries
 - **Command tests** (`drivers/*/commands/`) — restaurant card parsing, chat list parsing, cart item parsing
+- **Robustness tests** (`tests/robustness_test.go`) — screen-off starts, wrong-app recovery, scrolling, transient dump failures, context cancellation
 - **E2e tests** (`tests/e2e_test.go`) — simulates an AI assistant running multiple commands across all three apps, verifying JSON output structure
 
 Tests do not require a device. Integration tests against real apps are manual and not run in CI.

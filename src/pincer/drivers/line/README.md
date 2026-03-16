@@ -16,7 +16,7 @@ Automates the LINE messaging app. Currently implements read-only commands for li
 | Screen | Detection | Key indicators |
 |--------|-----------|----------------|
 | `CHATS` | Chat list visible | `chat_list_recycler_view` ID |
-| `CHAT_DETAIL` | Message input visible | `chathistory_message_edit_text` ID |
+| `CHAT_DETAIL` | Message composer or history visible | `chathistory_message_edit_text`, `chat_ui_message_edit`, or `chathistory_message_list` IDs |
 
 ## Element ID quirks
 
@@ -75,6 +75,26 @@ $ pincer line chat list --unread --limit 3
         "unread_count": 775,
         "member_count": 721,
         "muted": true
+      }
+    ]
+  }
+}
+```
+
+```bash
+$ pincer line chat read --chat "Project Atlas" --limit 2
+```
+```json
+{
+  "ok": true,
+  "data": {
+    "chat_name": "Project Atlas",
+    "messages": [
+      {
+        "text": "Can you send the adapter model number again?"
+      },
+      {
+        "text": "Most devices here use the standard adapter setup."
       }
     ]
   }

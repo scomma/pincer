@@ -11,7 +11,7 @@ go test ./... -v        # Verbose — shows parsed fixture data
 go run ./src/pincer     # Run the CLI
 ```
 
-Tests must pass before committing. There are currently 35 tests across 7 test packages.
+Tests must pass before committing. There are currently 54 tests across 7 test packages.
 
 ## Documentation organization
 
@@ -222,7 +222,7 @@ The driver struct should have `Dev core.Device`, `Workflow *core.Workflow`, and 
 
 ## Live device testing
 
-The live test suite at `tests/live_test.py` is the ultimate measure of whether Pincer works. It runs 19 test cases (11 documented + 8 adversarial) against a connected Android device across Grab, LINE, and Shopee.
+The live test suite at `tests/live_test.py` is the ultimate measure of whether Pincer works. It defines 10 documented cases, 8 optional adversarial cases, and a stderr-contract check against a connected Android device across Grab, LINE, and Shopee.
 
 ```bash
 go build -o pincer ./src/pincer/
