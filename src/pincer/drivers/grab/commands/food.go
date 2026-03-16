@@ -134,7 +134,20 @@ func findSearchBar(ctx context.Context, driver *grab.GrabDriver) (*core.Element,
 func performSearch(ctx context.Context, driver *grab.GrabDriver, query string) error {
 	searchBar, err := findSearchBar(ctx, driver)
 	if err != nil {
-		return err
+		// Search bar not found — likely on a previous search results
+		// screen where the bar is inaccessible. Press back to leave
+		// the results, re-navigate to food home, and retry once.
+		if err := driver.Dev.KeyEvent(ctx, "KEYCODE_BACK"); err != nil {
+			return err
+		}
+		time.Sleep(1 * time.Second)
+		if err := driver.NavigateToFoodHome(ctx); err != nil {
+			return err
+		}
+		searchBar, err = findSearchBar(ctx, driver)
+		if err != nil {
+			return err
+		}
 	}
 
 	c := searchBar.Center()

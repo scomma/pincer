@@ -43,6 +43,20 @@ func CartList(ctx context.Context, driver *shopee.ShopeeDriver) (*CartListResult
 		return nil, fmt.Errorf("navigate to cart: %w", err)
 	}
 
+	// Shopee may restore the cart scroll position deep in the
+	// "recommended" section. Scroll to the top so cart items are visible.
+	for i := 0; i < 5; i++ {
+		if err := driver.Workflow.ScrollUp(ctx); err != nil {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	// Wait for cart items to load after scrolling to top.
+	_, _ = driver.Workflow.WaitForElement(ctx, 5*time.Second, func(e *core.Element) bool {
+		return strings.HasPrefix(e.ResourceID, "sectionItemRow_") || e.ResourceID == "labelItemName"
+	})
+
 	// Collect items across multiple screens by scrolling.
 	var items []CartItem
 	seen := map[string]bool{}

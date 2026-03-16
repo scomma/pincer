@@ -219,3 +219,41 @@ The driver struct should have `Dev core.Device`, `Workflow *core.Workflow`, and 
 - `time.Sleep` calls in drivers don't respect context cancellation. This is a known trade-off — the sleeps are short (1-2s) and the added complexity of `select` at every call site wasn't worth it. If you're adding a sleep longer than 3 seconds, use a context-aware wait instead.
 - The `Cache` is best-effort. Corrupt or missing cache entries should never fail a command.
 - Thai text is prevalent in fixtures (this targets Thai locale apps). `len(s)` counts bytes, not characters. Use `utf8.RuneCountInString` if you need character count.
+
+## Live device testing
+
+The live test suite at `tests/live_test.py` is the ultimate measure of whether Pincer works. It runs 19 test cases (11 documented + 8 adversarial) against a connected Android device across Grab, LINE, and Shopee.
+
+```bash
+go build -o pincer ./src/pincer/
+python3 tests/live_test.py --seed 42 --include-extra --bin ./pincer
+```
+
+The `--seed` flag controls the random execution order. Run with multiple seeds (e.g., 42, 99, 7) to verify order-independence. Use `--passes 2` to repeat the documented cases.
+
+### How to think about live device work
+
+**The device is the source of truth, not the code.** When a command fails, dump the UI (`adb shell "uiautomator dump /sdcard/window_dump.xml" && adb shell "cat /sdcard/window_dump.xml"`) and look at what the device is actually showing. The dump tells you which resource IDs exist, what text is on screen, and what the element hierarchy looks like. Never theorize about what might be wrong without checking.
+
+**Fix the right layer.** When navigation fails, the instinct is to change the navigation method. But navigation methods are shared — making them stricter for one command's needs can break another. If a search command can't find the search bar, fix the recovery in the search command, not in `NavigateToFoodHome`. Put the fix where the problem is specific, not where it's general.
+
+**Reproduce the exact failure sequence.** Failures depend on execution order and app state. If case 6 fails after case 9, run them in that order manually. The same command that works in isolation may fail after a different command leaves the app in an unexpected state.
+
+**Distinguish code bugs from test assumptions.** "LINE unread list returned no chats" isn't a code bug — it's a test that assumes unread chats persist, but a previous test case opened LINE and marked them as read. Before adding complexity to the driver, check if the test's expectation is unrealistic given what ran before it.
+
+**Iterate with the test as the metric.** Make one targeted change, run the suite, read the failures. Don't batch up speculative fixes. Each run tells you what moved and what didn't. If the pass rate didn't improve, your theory was wrong — go look at the device again.
+
+**Apps restore state across launches.** When Shopee resumes, it may restore the scroll position deep in a "You May Also Like" section, hiding the actual cart items above. When Grab resumes from search results, the search bar is gone. These aren't bugs in the app — they're the reality of UI automation. The code must handle the state the app is actually in, not the state you wish it was in.
+
+**One retry in the right place beats five retries in the wrong place.** The Grab search bar fix is a single if-else: if `findSearchBar` fails, press back, re-navigate, try once more. That's it. Don't add retry loops to navigation methods "just in case" — that creates loops (FOOD_RESULTS → back → HOME → tap Food → FOOD_RESULTS → back → ...).
+
+### Common real-device failure patterns
+
+| Symptom | Cause | Fix pattern |
+|---------|-------|-------------|
+| 0 results despite correct screen | App restored scroll position below the data | Scroll to top before parsing |
+| `element_not_found` on second run | Previous results screen has different UI | Recovery path: press back, re-navigate, retry |
+| Test fails depending on order | Earlier test changed app state (read chats, navigated away) | Make tests resilient to prior state; fall back to less-specific queries |
+| Cart/search returns empty after app switch | Content hasn't loaded yet after activity resume | `WaitForElement` for data-bearing elements, not just header text |
+| `uiautomator dump` returns SystemUI | App startup animation still playing | `appStartupSettleDelay` (2s) after launch; retry with `containsNonSystemPackage` check |
+| Text entry corrupted | Gboard autocomplete mutating injected text | Use ADB Keyboard IME; don't restore Gboard after injection |
