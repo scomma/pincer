@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/prathan/pincer/src/pincer/drivers/line"
 	"github.com/prathan/pincer/src/pincer/core"
+	"github.com/prathan/pincer/src/pincer/drivers/line"
 )
 
 // ChatEntry represents a single chat in the list.
@@ -290,7 +290,8 @@ func parseChatMessages(finder *core.ElementFinder) []Message {
 // ChatSendResult is the output of `line chat send`.
 type ChatSendResult struct {
 	ChatName string `json:"chat_name"`
-	Message  string `json:"message"`
+	Message  string `json:"message,omitempty"`
+	Location string `json:"location,omitempty"`
 }
 
 const (
@@ -298,6 +299,10 @@ const (
 	messageBoxID    = "jp.naver.line.android:id/chat_ui_message_edit"
 	keyboardBtnID   = "jp.naver.line.android:id/chat_ui_oa_bottombar_keyboard_button"
 	confirmButtonID = "jp.naver.line.android:id/confirm_button"
+	attachButtonID  = "jp.naver.line.android:id/chathistory_attach_button"
+	locSearchID     = "jp.naver.line.android:id/location_search_text"
+	locTitleID      = "jp.naver.line.android:id/title"
+	locShareBtnID   = "jp.naver.line.android:id/header_button_text"
 )
 
 // ChatSend sends a message to a LINE chat.
@@ -416,6 +421,309 @@ func ensureMessageInput(ctx context.Context, driver *line.LineDriver) (*core.Ele
 		return nil, core.NewDriverError("element_not_found", "message input did not appear after keyboard toggle")
 	}
 	return msgBox, nil
+}
+
+// ChatSendLocation shares a location in a LINE chat.
+// If query is "current", shares the device's current GPS location.
+// Otherwise, searches for the query and picks the best match.
+func ChatSendLocation(ctx context.Context, driver *line.LineDriver, chatName string, query string) (*ChatSendResult, error) {
+	if err := driver.EnsureAppRunning(ctx); err != nil {
+		return nil, fmt.Errorf("ensure app running: %w", err)
+	}
+
+	if err := driver.NavigateToChats(ctx); err != nil {
+		return nil, fmt.Errorf("navigate to chats: %w", err)
+	}
+
+	chatEl, err := scrollToTopAndFindChat(ctx, driver, chatName)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := chatEl.Tap(ctx, driver.Dev); err != nil {
+		return nil, err
+	}
+	_, _ = driver.Workflow.WaitForElement(ctx, 5*time.Second, isChatDetail)
+
+	if err := dismissLinePopup(ctx, driver); err != nil {
+		return nil, err
+	}
+
+	// Open the attachment menu and tap Location.
+	if err := openLocationPicker(ctx, driver); err != nil {
+		return nil, err
+	}
+
+	// Dismiss any permission dialog that appears on first use.
+	if err := dismissPermissionDialog(ctx, driver); err != nil {
+		return nil, err
+	}
+
+	// Wait for the location picker to finish loading.
+	_, _ = driver.Workflow.WaitForElement(ctx, 5*time.Second,
+		core.HasID(locSearchID))
+
+	if strings.EqualFold(query, "current") {
+		return shareCurrentLocation(ctx, driver, chatName)
+	}
+	return searchAndShareLocation(ctx, driver, chatName, query)
+}
+
+func openLocationPicker(ctx context.Context, driver *line.LineDriver) error {
+	finder, err := driver.Workflow.FreshDump(ctx)
+	if err != nil {
+		return err
+	}
+
+	attachBtn := finder.ByID(attachButtonID)
+	if attachBtn == nil {
+		return core.NewDriverError("element_not_found", "attachment button not found")
+	}
+	c := attachBtn.Center()
+	if err := driver.Dev.Tap(ctx, c.X, c.Y); err != nil {
+		return err
+	}
+	time.Sleep(500 * time.Millisecond)
+
+	// Find and tap the "Location" item in the attachment grid.
+	finder, err = driver.Workflow.FreshDump(ctx)
+	if err != nil {
+		return err
+	}
+	// Find the "Location" item specifically inside the attachment grid,
+	// NOT a location message in the chat (which also has "Location" text).
+	locItem := finder.First(func(e *core.Element) bool {
+		return e.ResourceID == "jp.naver.line.android:id/chat_ui_attach_item_text" &&
+			strings.EqualFold(e.Text, "Location")
+	})
+	if locItem == nil {
+		return core.NewDriverError("element_not_found", "Location option not found in attachment menu")
+	}
+
+	// The text itself isn't clickable — find its clickable parent.
+	clickable := locItem
+	for p := locItem.Parent; p != nil; p = p.Parent {
+		if p.Clickable {
+			clickable = p
+			break
+		}
+	}
+	c = clickable.Center()
+	return driver.Dev.Tap(ctx, c.X, c.Y)
+}
+
+func dismissPermissionDialog(ctx context.Context, driver *line.LineDriver) error {
+	time.Sleep(1 * time.Second)
+	finder, err := driver.Workflow.FreshDump(ctx)
+	if err != nil {
+		return err
+	}
+	// Android permission dialog — tap "While using the app" or "Allow".
+	allow := finder.First(func(e *core.Element) bool {
+		return strings.Contains(e.ResourceID, "permission_allow_foreground_only_button") ||
+			strings.Contains(e.ResourceID, "permission_allow_one_time_button")
+	})
+	if allow == nil {
+		// Also check for generic "Allow" text.
+		allow = finder.ByText("While using the app", false)
+	}
+	if allow == nil {
+		return nil // No permission dialog — already granted.
+	}
+	c := allow.Center()
+	if err := driver.Dev.Tap(ctx, c.X, c.Y); err != nil {
+		return err
+	}
+	time.Sleep(2 * time.Second)
+	return nil
+}
+
+func shareCurrentLocation(ctx context.Context, driver *line.LineDriver, chatName string) (*ChatSendResult, error) {
+	finder, err := driver.Workflow.FreshDump(ctx)
+	if err != nil {
+		return nil, err
+	}
+	shareBtn := finder.First(func(e *core.Element) bool {
+		return e.ResourceID == locShareBtnID && strings.EqualFold(e.Text, "Share")
+	})
+	if shareBtn == nil {
+		return nil, core.NewDriverError("element_not_found", "Share button not found on location picker")
+	}
+	c := shareBtn.Center()
+	if err := driver.Dev.Tap(ctx, c.X, c.Y); err != nil {
+		return nil, err
+	}
+	// LINE shows a location viewer after sharing. Dismiss it.
+	if err := dismissLocationViewer(ctx, driver); err != nil {
+		return nil, err
+	}
+
+	return &ChatSendResult{
+		ChatName: chatName,
+		Location: "current",
+	}, nil
+}
+
+func searchAndShareLocation(ctx context.Context, driver *line.LineDriver, chatName, query string) (*ChatSendResult, error) {
+	finder, err := driver.Workflow.FreshDump(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	searchBox := finder.ByID(locSearchID)
+	if searchBox == nil {
+		return nil, core.NewDriverError("element_not_found", "location search box not found")
+	}
+	c := searchBox.Center()
+	if err := driver.Dev.Tap(ctx, c.X, c.Y); err != nil {
+		return nil, err
+	}
+	time.Sleep(300 * time.Millisecond)
+
+	if err := driver.Dev.TypeText(ctx, query); err != nil {
+		return nil, fmt.Errorf("typing location query: %w", err)
+	}
+	time.Sleep(2 * time.Second) // Wait for search results
+
+	// Collect results across multiple pages of results.
+	var allTitles []*core.Element
+	for page := 0; page < 4; page++ {
+		finder, err = driver.Workflow.FreshDump(ctx)
+		if err != nil {
+			return nil, err
+		}
+		allTitles = append(allTitles, finder.All(core.HasID(locTitleID))...)
+		if page < 3 {
+			_ = driver.Workflow.ScrollDown(ctx)
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
+
+	best := pickBestFromElements(allTitles, query)
+	if best == nil {
+		return nil, core.NewDriverError("location_not_found",
+			"no suitable location found for '"+query+"'")
+	}
+
+	// Tap the best result — find its clickable ancestor.
+	clickable := best
+	for p := best.Parent; p != nil; p = p.Parent {
+		if p.Clickable {
+			clickable = p
+			break
+		}
+	}
+	c = clickable.Center()
+	if err := driver.Dev.Tap(ctx, c.X, c.Y); err != nil {
+		return nil, err
+	}
+	time.Sleep(1 * time.Second)
+
+	// The map centers on the selection. Now tap Share.
+	finder, err = driver.Workflow.FreshDump(ctx)
+	if err != nil {
+		return nil, err
+	}
+	shareBtn := finder.First(func(e *core.Element) bool {
+		return e.ResourceID == locShareBtnID && strings.EqualFold(e.Text, "Share")
+	})
+	if shareBtn == nil {
+		return nil, core.NewDriverError("element_not_found", "Share button not found after selecting location")
+	}
+	c = shareBtn.Center()
+	if err := driver.Dev.Tap(ctx, c.X, c.Y); err != nil {
+		return nil, err
+	}
+	if err := dismissLocationViewer(ctx, driver); err != nil {
+		return nil, err
+	}
+
+	return &ChatSendResult{
+		ChatName: chatName,
+		Location: strings.TrimSpace(best.Text),
+	}, nil
+}
+
+// dismissLocationViewer presses back to dismiss the full-screen
+// location viewer that LINE shows after sharing a location.
+func dismissLocationViewer(ctx context.Context, driver *line.LineDriver) error {
+	time.Sleep(2 * time.Second)
+	// Check if we're on the location viewer (has location_viewer_menu).
+	finder, err := driver.Workflow.FreshDump(ctx)
+	if err != nil {
+		return err
+	}
+	if finder.ByID("jp.naver.line.android:id/location_viewer_menu") != nil {
+		if err := driver.Dev.KeyEvent(ctx, "KEYCODE_BACK"); err != nil {
+			return err
+		}
+		time.Sleep(1 * time.Second)
+	}
+	return nil
+}
+
+// pickBestFromElements selects the most relevant location from a list
+// of title elements. Prefers results where the title closely matches
+// the query without extra venue specifics.
+func pickBestFromElements(titles []*core.Element, query string) *core.Element {
+	queryLower := strings.ToLower(query)
+
+	var bestEl *core.Element
+	bestScore := -1
+
+	for _, el := range titles {
+		text := strings.TrimSpace(el.Text)
+		if text == "" {
+			continue
+		}
+		score := locationMatchScore(text, queryLower)
+		if score > bestScore {
+			bestScore = score
+			bestEl = el
+		}
+	}
+	return bestEl
+}
+
+// locationMatchScore scores how well a location title matches the query.
+// Higher scores are better. Returns -1 for non-matches.
+func locationMatchScore(title, queryLower string) int {
+	titleLower := strings.ToLower(title)
+
+	if !strings.Contains(titleLower, queryLower) {
+		return -1
+	}
+
+	score := 100
+
+	// Prefer titles that START with the query (main venue, not a sub-venue).
+	if strings.HasPrefix(titleLower, queryLower) {
+		score += 80
+	}
+
+	// Heavy penalty for "@" which means "sub-venue at CentralWorld".
+	if strings.Contains(titleLower, "@") {
+		score -= 40
+	}
+
+	// Penalize titles with floor/zone/venue indicators (sub-venues).
+	for _, noise := range []string{"fl.", "floor", "zone", "office", "shop", "cafe", "meeting", "live", "samsung", "brand"} {
+		if strings.Contains(titleLower, noise) {
+			score -= 15
+		}
+	}
+
+	// Boost landmark/plaza terms — these tend to be the main venue entry.
+	for _, landmark := range []string{"square", "plaza", "complex", "center", "centre"} {
+		if strings.Contains(titleLower, landmark) {
+			score += 30
+		}
+	}
+
+	// Prefer shorter titles (less likely to be a compound sub-venue name).
+	score -= len(title) / 2
+
+	return score
 }
 
 // ParseChatListFromXML is a test helper for parsing chats from raw XML.

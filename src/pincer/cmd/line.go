@@ -116,27 +116,34 @@ messages are returned (most recent N).`,
 
 var lineChatSendCmd = &cobra.Command{
 	Use:   "send",
-	Short: "Send a message to a LINE chat",
-	Long: `Send a text message to a specific chat by name. The --chat flag
-must match the chat name exactly (case-sensitive). Use "pincer line
-chat list" first to discover available chat names.
+	Short: "Send a message or location to a LINE chat",
+	Long: `Send a text message or share a location to a specific chat by name.
+The --chat flag must match the chat name exactly (case-sensitive).
+
+Use --message for text, or --location for locations. Use --location
+"current" to share the device's current GPS position, or pass a place
+name to search and share.
 
 For safe testing, use "Keep Memo" which is LINE's note-to-self.`,
-	Example: `  # Send a message to Keep Memo
+	Example: `  # Send a text message
   pincer line chat send --chat "Keep Memo" --message "hello from pincer"
 
-  # Send to a group chat
-  pincer line chat send --chat "Project Atlas" --message "update: deploy complete"`,
+  # Share current location
+  pincer line chat send --chat "Keep Memo" --location current
+
+  # Share a specific place
+  pincer line chat send --chat "Keep Memo" --location "centralwOrld"`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		chatName, _ := cmd.Flags().GetString("chat")
 		message, _ := cmd.Flags().GetString("message")
+		location, _ := cmd.Flags().GetString("location")
 
 		if chatName == "" {
 			outputError(core.NewDriverError("missing_argument", "--chat is required"))
 			return nil
 		}
-		if message == "" {
-			outputError(core.NewDriverError("missing_argument", "--message is required"))
+		if message == "" && location == "" {
+			outputError(core.NewDriverError("missing_argument", "--message or --location is required"))
 			return nil
 		}
 
@@ -146,6 +153,16 @@ For safe testing, use "Keep Memo" which is LINE's note-to-self.`,
 		driver, err := line.NewLineDriver(newADB())
 		if err != nil {
 			outputError(err)
+			return nil
+		}
+
+		if location != "" {
+			result, err := commands.ChatSendLocation(ctx, driver, chatName, location)
+			if err != nil {
+				outputError(err)
+				return nil
+			}
+			outputJSON(core.NewResponse(result))
 			return nil
 		}
 
@@ -168,7 +185,8 @@ func init() {
 	lineChatReadCmd.Flags().IntP("limit", "n", 20, "Limit number of messages")
 
 	lineChatSendCmd.Flags().String("chat", "", "Chat name to send to (required, exact match)")
-	lineChatSendCmd.Flags().StringP("message", "m", "", "Message text to send (required)")
+	lineChatSendCmd.Flags().StringP("message", "m", "", "Text message to send")
+	lineChatSendCmd.Flags().StringP("location", "l", "", "Location to share: 'current' or a place name to search")
 
 	lineChatCmd.AddCommand(lineChatListCmd, lineChatReadCmd, lineChatSendCmd)
 	lineCmd.AddCommand(lineChatCmd)
