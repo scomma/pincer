@@ -234,6 +234,54 @@ func walkDescendants(root *core.Element, visit func(*core.Element)) {
 	}
 }
 
+// findCartItemRow scrolls through the cart and finds a sectionItemRow_* element
+// whose labelItemName child text contains the search string (case-insensitive).
+func findCartItemRow(ctx context.Context, driver *shopee.ShopeeDriver, itemName string) (*core.Element, *core.ElementFinder, error) {
+	// Scroll to top first (brief — cart items are near the top).
+	for i := 0; i < 3; i++ {
+		if err := driver.Workflow.ScrollUp(ctx); err != nil {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	lowerName := strings.ToLower(itemName)
+	const maxScrolls = 12
+
+	for scroll := 0; scroll <= maxScrolls; scroll++ {
+		if ctx.Err() != nil {
+			return nil, nil, ctx.Err()
+		}
+
+		finder, err := driver.Workflow.FreshDump(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		rows := finder.All(func(e *core.Element) bool {
+			return strings.HasPrefix(e.ResourceID, "sectionItemRow_")
+		})
+
+		for _, row := range rows {
+			label := firstDescendant(row, func(e *core.Element) bool {
+				return e.ResourceID == "labelItemName" && strings.TrimSpace(e.Text) != ""
+			})
+			if label != nil && strings.Contains(strings.ToLower(label.Text), lowerName) {
+				return row, finder, nil
+			}
+		}
+
+		if scroll < maxScrolls {
+			if err := driver.Workflow.ScrollDown(ctx); err != nil {
+				return nil, nil, err
+			}
+			time.Sleep(250 * time.Millisecond)
+		}
+	}
+
+	return nil, nil, fmt.Errorf("cart item %q not found", itemName)
+}
+
 // ParseCartItemsFromXML is a test helper.
 func ParseCartItemsFromXML(xmlData []byte) ([]CartItem, error) {
 	finder, err := core.NewElementFinderFromXML(xmlData)

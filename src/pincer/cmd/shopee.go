@@ -23,7 +23,9 @@ Available domains:
 var shopeeCartCmd = &cobra.Command{
 	Use:   "cart",
 	Short: "Shopee cart commands",
-	Example: `  pincer shopee cart list`,
+	Example: `  pincer shopee cart list
+  pincer shopee cart update --item "COCOFON Organic Toilet" --quantity 3
+  pincer shopee cart remove --item "COCOFON Organic Toilet"`,
 }
 
 var shopeeCartListCmd = &cobra.Command{
@@ -91,10 +93,90 @@ discount information.`,
 	},
 }
 
+var shopeeCartUpdateCmd = &cobra.Command{
+	Use:   "update",
+	Short: "Update quantity of a cart item",
+	Long: `Update the quantity of an item in the Shopee shopping cart.
+Finds the item by name (case-insensitive substring match) and taps the
++/- buttons to reach the target quantity.`,
+	Example: `  pincer shopee cart update --item "COCOFON Organic Toilet" --quantity 3`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		item, _ := cmd.Flags().GetString("item")
+		quantity, _ := cmd.Flags().GetInt("quantity")
+
+		if item == "" {
+			outputError(core.NewDriverError("missing_argument", "--item is required"))
+			return nil
+		}
+		if quantity < 1 {
+			outputError(core.NewDriverError("invalid_argument", "--quantity must be at least 1"))
+			return nil
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
+		defer cancel()
+
+		driver, err := shopee.NewShopeeDriver(newADB())
+		if err != nil {
+			outputError(err)
+			return nil
+		}
+
+		result, err := commands.CartUpdate(ctx, driver, item, quantity)
+		if err != nil {
+			outputError(err)
+			return nil
+		}
+
+		outputJSON(core.NewResponse(result))
+		return nil
+	},
+}
+
+var shopeeCartRemoveCmd = &cobra.Command{
+	Use:   "remove",
+	Short: "Remove an item from the cart",
+	Long: `Remove an item from the Shopee shopping cart. Finds the item by name
+(case-insensitive substring match), enters edit mode for the item's shop
+section, and taps the Delete button.`,
+	Example: `  pincer shopee cart remove --item "COCOFON Organic Toilet"`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		item, _ := cmd.Flags().GetString("item")
+
+		if item == "" {
+			outputError(core.NewDriverError("missing_argument", "--item is required"))
+			return nil
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
+		defer cancel()
+
+		driver, err := shopee.NewShopeeDriver(newADB())
+		if err != nil {
+			outputError(err)
+			return nil
+		}
+
+		result, err := commands.CartRemove(ctx, driver, item)
+		if err != nil {
+			outputError(err)
+			return nil
+		}
+
+		outputJSON(core.NewResponse(result))
+		return nil
+	},
+}
+
 func init() {
 	shopeeSearchCmd.Flags().StringP("query", "q", "", "Search query (required)")
 
-	shopeeCartCmd.AddCommand(shopeeCartListCmd)
+	shopeeCartUpdateCmd.Flags().StringP("item", "i", "", "Item name to search for (required)")
+	shopeeCartUpdateCmd.Flags().IntP("quantity", "q", 0, "Target quantity (required)")
+
+	shopeeCartRemoveCmd.Flags().StringP("item", "i", "", "Item name to search for (required)")
+
+	shopeeCartCmd.AddCommand(shopeeCartListCmd, shopeeCartUpdateCmd, shopeeCartRemoveCmd)
 	shopeeCmd.AddCommand(shopeeCartCmd, shopeeSearchCmd)
 	rootCmd.AddCommand(shopeeCmd)
 }
