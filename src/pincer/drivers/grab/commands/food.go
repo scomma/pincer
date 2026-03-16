@@ -66,6 +66,12 @@ func FoodSearch(ctx context.Context, driver *grab.GrabDriver, query string) (*Fo
 	var restaurants []Restaurant
 	seen := map[string]bool{}
 	const maxScrolls = 5
+	// After a query, tolerate more stale iterations because results
+	// may take a moment to load after the search submits.
+	staleLimit := 1
+	if query != "" {
+		staleLimit = 3
+	}
 
 	for scroll := 0; scroll <= maxScrolls; scroll++ {
 		if ctx.Err() != nil {
@@ -86,7 +92,12 @@ func FoodSearch(ctx context.Context, driver *grab.GrabDriver, query string) (*Fo
 		}
 
 		if newCount == 0 {
-			break
+			staleLimit--
+			if staleLimit <= 0 {
+				break
+			}
+		} else {
+			staleLimit = 1
 		}
 
 		if scroll < maxScrolls {
@@ -136,7 +147,7 @@ func performSearch(ctx context.Context, driver *grab.GrabDriver, query string) e
 	if err != nil {
 		// Search bar not found — likely on a previous search results
 		// screen where the bar is inaccessible. Press back to leave
-		// the results, re-navigate to food home, and retry once.
+		// the results, re-navigate to food home, and retry.
 		if err := driver.Dev.KeyEvent(ctx, "KEYCODE_BACK"); err != nil {
 			return err
 		}
@@ -146,7 +157,21 @@ func performSearch(ctx context.Context, driver *grab.GrabDriver, query string) e
 		}
 		searchBar, err = findSearchBar(ctx, driver)
 		if err != nil {
-			return err
+			// Still can't find it — the app may be in a corrupted
+			// state after extensive automation. Go to Android home
+			// then re-launch and navigate fresh.
+			_ = driver.Dev.KeyEvent(ctx, "KEYCODE_HOME")
+			time.Sleep(1 * time.Second)
+			if err := driver.EnsureAppRunning(ctx); err != nil {
+				return err
+			}
+			if err := driver.NavigateToFoodHome(ctx); err != nil {
+				return err
+			}
+			searchBar, err = findSearchBar(ctx, driver)
+			if err != nil {
+				return err
+			}
 		}
 	}
 

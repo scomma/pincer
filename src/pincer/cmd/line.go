@@ -21,12 +21,13 @@ Available domains:
 
 var lineChatCmd = &cobra.Command{
 	Use:   "chat",
-	Short: "LINE chat commands — list and read conversations",
-	Long: `Commands for reading LINE chat data. Parses chat names, last messages,
+	Short: "LINE chat commands — list, read, and send messages",
+	Long: `Commands for interacting with LINE chats. Parses chat names, last messages,
 timestamps, unread counts, and member counts.`,
 	Example: `  pincer line chat list
   pincer line chat list --unread --limit 5
-  pincer line chat read --chat "Family Direct"`,
+  pincer line chat read --chat "Family Direct"
+  pincer line chat send --chat "Keep Memo" --message "hello"`,
 }
 
 var lineChatListCmd = &cobra.Command{
@@ -113,6 +114,52 @@ messages are returned (most recent N).`,
 	},
 }
 
+var lineChatSendCmd = &cobra.Command{
+	Use:   "send",
+	Short: "Send a message to a LINE chat",
+	Long: `Send a text message to a specific chat by name. The --chat flag
+must match the chat name exactly (case-sensitive). Use "pincer line
+chat list" first to discover available chat names.
+
+For safe testing, use "Keep Memo" which is LINE's note-to-self.`,
+	Example: `  # Send a message to Keep Memo
+  pincer line chat send --chat "Keep Memo" --message "hello from pincer"
+
+  # Send to a group chat
+  pincer line chat send --chat "Project Atlas" --message "update: deploy complete"`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		chatName, _ := cmd.Flags().GetString("chat")
+		message, _ := cmd.Flags().GetString("message")
+
+		if chatName == "" {
+			outputError(core.NewDriverError("missing_argument", "--chat is required"))
+			return nil
+		}
+		if message == "" {
+			outputError(core.NewDriverError("missing_argument", "--message is required"))
+			return nil
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
+		defer cancel()
+
+		driver, err := line.NewLineDriver(newADB())
+		if err != nil {
+			outputError(err)
+			return nil
+		}
+
+		result, err := commands.ChatSend(ctx, driver, chatName, message)
+		if err != nil {
+			outputError(err)
+			return nil
+		}
+
+		outputJSON(core.NewResponse(result))
+		return nil
+	},
+}
+
 func init() {
 	lineChatListCmd.Flags().Bool("unread", false, "Show only unread chats")
 	lineChatListCmd.Flags().IntP("limit", "n", 0, "Limit number of results (0 = no limit)")
@@ -120,7 +167,10 @@ func init() {
 	lineChatReadCmd.Flags().String("chat", "", "Chat name to read (required, exact match)")
 	lineChatReadCmd.Flags().IntP("limit", "n", 20, "Limit number of messages")
 
-	lineChatCmd.AddCommand(lineChatListCmd, lineChatReadCmd)
+	lineChatSendCmd.Flags().String("chat", "", "Chat name to send to (required, exact match)")
+	lineChatSendCmd.Flags().StringP("message", "m", "", "Message text to send (required)")
+
+	lineChatCmd.AddCommand(lineChatListCmd, lineChatReadCmd, lineChatSendCmd)
 	lineCmd.AddCommand(lineChatCmd)
 	rootCmd.AddCommand(lineCmd)
 }

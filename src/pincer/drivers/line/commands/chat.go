@@ -287,6 +287,137 @@ func parseChatMessages(finder *core.ElementFinder) []Message {
 	return messages
 }
 
+// ChatSendResult is the output of `line chat send`.
+type ChatSendResult struct {
+	ChatName string `json:"chat_name"`
+	Message  string `json:"message"`
+}
+
+const (
+	sendButtonID    = "jp.naver.line.android:id/chat_ui_send_button_image"
+	messageBoxID    = "jp.naver.line.android:id/chat_ui_message_edit"
+	keyboardBtnID   = "jp.naver.line.android:id/chat_ui_oa_bottombar_keyboard_button"
+	confirmButtonID = "jp.naver.line.android:id/confirm_button"
+)
+
+// ChatSend sends a message to a LINE chat.
+func ChatSend(ctx context.Context, driver *line.LineDriver, chatName string, message string) (*ChatSendResult, error) {
+	if err := driver.EnsureAppRunning(ctx); err != nil {
+		return nil, fmt.Errorf("ensure app running: %w", err)
+	}
+
+	if err := driver.NavigateToChats(ctx); err != nil {
+		return nil, fmt.Errorf("navigate to chats: %w", err)
+	}
+
+	chatEl, err := scrollToTopAndFindChat(ctx, driver, chatName)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := chatEl.Tap(ctx, driver.Dev); err != nil {
+		return nil, err
+	}
+
+	// Wait for the chat detail screen to load.
+	_, _ = driver.Workflow.WaitForElement(ctx, 5*time.Second, isChatDetail)
+
+	// Dismiss any info popup (e.g. Keep Memo's first-visit dialog).
+	if err := dismissLinePopup(ctx, driver); err != nil {
+		return nil, err
+	}
+
+	// Find the message input field.
+	msgBox, err := ensureMessageInput(ctx, driver)
+	if err != nil {
+		return nil, err
+	}
+	c := msgBox.Center()
+	if err := driver.Dev.Tap(ctx, c.X, c.Y); err != nil {
+		return nil, err
+	}
+	time.Sleep(300 * time.Millisecond)
+
+	// Type the message.
+	if err := driver.Dev.TypeText(ctx, message); err != nil {
+		return nil, fmt.Errorf("typing message: %w", err)
+	}
+	time.Sleep(300 * time.Millisecond)
+
+	// Wait for the send button to become active (content-desc changes
+	// from "Voice message" to "Send" when text is present).
+	sendBtn, err := driver.Workflow.WaitForElement(ctx, 3*time.Second, func(e *core.Element) bool {
+		return e.ResourceID == sendButtonID && e.ContentDesc == "Send"
+	})
+	if err != nil {
+		return nil, core.NewDriverError("send_not_ready", "send button did not activate after typing")
+	}
+
+	c = sendBtn.Center()
+	if err := driver.Dev.Tap(ctx, c.X, c.Y); err != nil {
+		return nil, fmt.Errorf("tapping send: %w", err)
+	}
+
+	// Wait for the input field to clear, confirming the message was sent.
+	_, _ = driver.Workflow.WaitForElement(ctx, 3*time.Second, func(e *core.Element) bool {
+		return e.ResourceID == sendButtonID && e.ContentDesc == "Voice message"
+	})
+
+	return &ChatSendResult{
+		ChatName: chatName,
+		Message:  message,
+	}, nil
+}
+
+// dismissLinePopup taps any visible "OK" / "confirm_button" overlay.
+// These appear on first visits (e.g. Keep Memo's info dialog).
+func dismissLinePopup(ctx context.Context, driver *line.LineDriver) error {
+	finder, err := driver.Workflow.FreshDump(ctx)
+	if err != nil {
+		return err
+	}
+	btn := finder.ByID(confirmButtonID)
+	if btn == nil {
+		return nil // No popup — nothing to dismiss.
+	}
+	c := btn.Center()
+	if err := driver.Dev.Tap(ctx, c.X, c.Y); err != nil {
+		return err
+	}
+	time.Sleep(500 * time.Millisecond)
+	return nil
+}
+
+// ensureMessageInput returns the message input field. If it's not visible
+// (e.g. Official Account chats show a rich menu instead), taps the
+// keyboard toggle to reveal it.
+func ensureMessageInput(ctx context.Context, driver *line.LineDriver) (*core.Element, error) {
+	finder, err := driver.Workflow.FreshDump(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if msgBox := finder.ByID(messageBoxID); msgBox != nil {
+		return msgBox, nil
+	}
+
+	// Official Account chats have a keyboard toggle button.
+	kbBtn := finder.ByID(keyboardBtnID)
+	if kbBtn == nil {
+		return nil, core.NewDriverError("element_not_found", "message input field not found")
+	}
+	c := kbBtn.Center()
+	if err := driver.Dev.Tap(ctx, c.X, c.Y); err != nil {
+		return nil, err
+	}
+
+	msgBox, err := driver.Workflow.WaitForElement(ctx, 3*time.Second, core.HasID(messageBoxID))
+	if err != nil {
+		return nil, core.NewDriverError("element_not_found", "message input did not appear after keyboard toggle")
+	}
+	return msgBox, nil
+}
+
 // ParseChatListFromXML is a test helper for parsing chats from raw XML.
 func ParseChatListFromXML(xmlData []byte) ([]ChatEntry, error) {
 	finder, err := core.NewElementFinderFromXML(xmlData)

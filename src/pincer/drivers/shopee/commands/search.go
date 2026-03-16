@@ -75,7 +75,7 @@ func Search(ctx context.Context, driver *shopee.ShopeeDriver, query string) (*Se
 	}
 
 	// Wait for search results to load.
-	time.Sleep(1200 * time.Millisecond)
+	time.Sleep(2 * time.Second)
 
 	// Collect products across multiple screens by scrolling.
 	var products []Product

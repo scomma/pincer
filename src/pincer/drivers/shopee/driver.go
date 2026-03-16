@@ -115,7 +115,7 @@ func (b *ShopeeDriver) NavigateToCart(ctx context.Context) error {
 
 // NavigateToHome navigates to the Shopee home screen.
 func (b *ShopeeDriver) NavigateToHome(ctx context.Context) error {
-	const maxRetries = 3
+	const maxRetries = 5
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		finder, err := b.Workflow.FreshDump(ctx)
 		if err != nil {
@@ -125,6 +125,18 @@ func (b *ShopeeDriver) NavigateToHome(ctx context.Context) error {
 
 		if DetectScreen(finder) == ScreenHome {
 			return nil
+		}
+
+		// Try tapping the bottom-nav home tab directly — more reliable
+		// than pressing back from screens like CART or ME.
+		homeTab := finder.First(core.HasContentDesc("tab_bar_button_home"))
+		if homeTab != nil {
+			c := homeTab.Center()
+			if err := b.Dev.Tap(ctx, c.X, c.Y); err != nil {
+				return err
+			}
+			time.Sleep(1 * time.Second)
+			continue
 		}
 
 		if err := b.Workflow.BackOrRelaunch(ctx, PackageName); err != nil {

@@ -275,6 +275,61 @@ func TestAIAssistantErrorHandling(t *testing.T) {
 	})
 }
 
+// TestAIAssistantLineChatSend simulates sending a message to a chat.
+func TestAIAssistantLineChatSend(t *testing.T) {
+	ctx := context.Background()
+
+	// Three-fixture sequence: chats (navigation) → chat_detail (screen
+	// detection + input) → chat_detail_typing (send button active after
+	// typing). The mock cycles round-robin through these.
+	mock := core.NewMockDeviceWithSequence(
+		[]string{
+			"fixtures/line/chats.xml",
+			"fixtures/line/chat_detail_typing.xml",
+		},
+		line.PackageName,
+	)
+	driver, err := line.NewLineDriver(mock)
+	if err != nil {
+		t.Fatalf("creating driver: %v", err)
+	}
+
+	result, err := linecmd.ChatSend(ctx, driver, "Family Direct", "hello from test")
+	if err != nil {
+		t.Fatalf("chat send: %v", err)
+	}
+
+	if result.ChatName != "Family Direct" {
+		t.Errorf("expected chat_name='Family Direct', got %q", result.ChatName)
+	}
+	if result.Message != "hello from test" {
+		t.Errorf("expected message='hello from test', got %q", result.Message)
+	}
+
+	// Verify taps were issued (to open chat + focus input + tap send)
+	taps := mock.Taps()
+	if len(taps) < 2 {
+		t.Errorf("expected at least 2 taps (open chat + send), got %d", len(taps))
+	}
+
+	// Verify the message was typed
+	typed := mock.TypedTexts()
+	found := false
+	for _, text := range typed {
+		if text == "hello from test" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected TypeText('hello from test'), got: %v", typed)
+	}
+
+	resp := core.NewResponse(result)
+	jsonBytes, _ := json.MarshalIndent(resp, "", "  ")
+	t.Logf("AI receives:\n%s", string(jsonBytes))
+}
+
 // TestAIAssistantAllCommandsCoverage verifies every implemented command
 // produces valid JSON output that an AI assistant can parse.
 func TestAIAssistantAllCommandsCoverage(t *testing.T) {
@@ -338,6 +393,20 @@ func TestAIAssistantAllCommandsCoverage(t *testing.T) {
 				mock := core.NewMockDevice("fixtures/line/chats.xml", line.PackageName)
 				b, _ := line.NewLineDriver(mock)
 				return linecmd.ChatRead(ctx, b, "Family Direct", 20)
+			},
+		},
+		{
+			name: "pincer line chat send --chat Family Direct --message hello",
+			run: func() (any, error) {
+				mock := core.NewMockDeviceWithSequence(
+					[]string{
+						"fixtures/line/chats.xml",
+						"fixtures/line/chat_detail_typing.xml",
+					},
+					line.PackageName,
+				)
+				b, _ := line.NewLineDriver(mock)
+				return linecmd.ChatSend(ctx, b, "Family Direct", "hello")
 			},
 		},
 		{

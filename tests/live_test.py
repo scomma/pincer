@@ -284,21 +284,25 @@ class Harness:
         data = payload.get("data") or {}
         return data.get("items") or data.get("products") or []
 
+    # Official account / bot chats that only have stickers or images.
+    SKIP_CHATS = {"LINE Wallet", "LINE", "LINE SHOPPING", "Whalefood", "Keep Memo"}
+
     def ensure_chat_name(self) -> str:
         chat_name = self.state.get("chat_name")
-        if chat_name:
+        if chat_name and chat_name not in self.SKIP_CHATS:
             return chat_name
-        # Try unread first, fall back to any chats.
-        payload = self.expect_ok(self.pincer("line", "chat", "list", "--unread", "--limit", "5"))
-        chats = self.line_chats(payload)
-        if not chats:
-            payload = self.expect_ok(self.pincer("line", "chat", "list", "--limit", "5"))
+        # Try unread first, fall back to any chats. Skip official accounts
+        # that only have stickers/images (no text to read).
+        for flags in [["--unread", "--limit", "10"], ["--limit", "10"]]:
+            payload = self.expect_ok(self.pincer("line", "chat", "list", *flags))
             chats = self.line_chats(payload)
-        self.require(bool(chats), "no chats available for case 5")
-        chat_name = chats[0].get("name", "")
-        self.require(bool(chat_name), "chat entry missing name")
-        self.state["chat_name"] = chat_name
-        return chat_name
+            for c in (chats or []):
+                name = c.get("name", "")
+                if name and name not in self.SKIP_CHATS:
+                    self.state["chat_name"] = name
+                    return name
+        self.require(False, "no suitable chats available for case 5")
+        return ""  # unreachable
 
 
 def passed(case_id: str, name: str, detail: str) -> CaseResult:
@@ -347,14 +351,23 @@ def case_3(h: Harness) -> CaseResult:
 def case_4(h: Harness) -> CaseResult:
     h.launch(GRAB_PKG)
     # Try unread first; if none (earlier test opened LINE), fall back to all chats.
-    payload = h.expect_ok(h.pincer("line", "chat", "list", "--unread", "--limit", "5"))
+    payload = h.expect_ok(h.pincer("line", "chat", "list", "--unread", "--limit", "10"))
     chats = h.line_chats(payload)
     if not chats:
-        payload = h.expect_ok(h.pincer("line", "chat", "list", "--limit", "5"))
+        payload = h.expect_ok(h.pincer("line", "chat", "list", "--limit", "10"))
         chats = h.line_chats(payload)
     h.require(bool(chats), "LINE chat list returned no chats")
-    h.state["chat_name"] = chats[0].get("name", "")
-    return passed("4", "Wrong app -> LINE chat list", f"count={len(chats)} chat={h.state['chat_name']!r}")
+    # Prefer a non-bot chat so case 5 (chat read) can find text messages.
+    chat_name = ""
+    for c in chats:
+        name = c.get("name", "")
+        if name and name not in h.SKIP_CHATS:
+            chat_name = name
+            break
+    if not chat_name:
+        chat_name = chats[0].get("name", "")
+    h.state["chat_name"] = chat_name
+    return passed("4", "Wrong app -> LINE chat list", f"count={len(chats)} chat={chat_name!r}")
 
 
 def case_5(h: Harness) -> CaseResult:
@@ -433,6 +446,22 @@ def case_10(h: Harness) -> CaseResult:
     restaurants = h.grab_restaurants(payload)
     h.require(bool(restaurants), "Grab deep recovery returned no restaurants")
     return passed("10", "Deep sub-screen recovery", f"entered={entered} count={len(restaurants)}")
+
+
+def case_11(h: Harness) -> CaseResult:
+    import datetime
+    ts = datetime.datetime.now().strftime("%H:%M:%S")
+    message = f"pincer live test {ts}"
+    payload = h.expect_ok(h.pincer("line", "chat", "send", "--chat", "Keep Memo", "--message", message))
+    data = payload.get("data") or {}
+    h.require(data.get("chat_name") == "Keep Memo", f"echoed chat_name={data.get('chat_name')!r}")
+    h.require(data.get("message") == message, f"echoed message={data.get('message')!r}")
+    # Read back to verify the message landed.
+    read_payload = h.expect_ok(h.pincer("line", "chat", "read", "--chat", "Keep Memo", "--limit", "3"))
+    messages = h.line_messages(read_payload)
+    texts = [m.get("text", "") for m in messages]
+    h.require(message in texts, f"sent message not found in read-back: {texts}")
+    return passed("11", "LINE chat send to Keep Memo", f"message={message!r}")
 
 
 def case_error_contract(h: Harness) -> CaseResult:
@@ -529,6 +558,7 @@ DOCUMENTED_CASES = [
     Case("8", "Cold launch LINE list", "Kill apps, turn screen off, and cold-launch LINE.", case_8),
     Case("9", "Rapid cross-app sequence", "Run Grab -> Shopee -> LINE -> Grab in one chain.", case_9),
     Case("10", "Deep sub-screen recovery", "Recover Grab from a deeper sub-screen.", case_10),
+    Case("11", "LINE chat send to Keep Memo", "Send a message to Keep Memo and verify it.", case_11),
 ]
 
 
