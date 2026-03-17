@@ -69,10 +69,16 @@ func DetectScreen(finder *core.ElementFinder) Screen {
 	if finder.ByText("Shopping Cart", true) != nil {
 		return ScreenCart
 	}
+	// My Purchases as a page title (in the header, y < 300) means we're
+	// on the orders page. The Me page also has "My Purchases" text but
+	// as a section label further down.
+	if mp := finder.ByText("My Purchases", true); mp != nil && mp.Bounds.Top < 300 {
+		return ScreenOrders
+	}
 	if finder.ByID("com.shopee.th:id/homepage_main_recycler") != nil {
 		return ScreenHome
 	}
-	if finder.ByText("Edit Profile", true) != nil {
+	if finder.ByText("Edit Profile", true) != nil || finder.ByID("labelUserName") != nil {
 		return ScreenMe
 	}
 	return ScreenUnknown
@@ -104,6 +110,62 @@ func (b *ShopeeDriver) NavigateToCart(ctx context.Context) error {
 			_, err := b.Workflow.WaitForElement(ctx, 5*time.Second,
 				core.HasText("Shopping Cart"))
 			return err
+		}
+
+		if err := b.Workflow.BackOrRelaunch(ctx, PackageName); err != nil {
+			return err
+		}
+	}
+	return core.ErrNavigation()
+}
+
+// NavigateToOrders navigates to the My Purchases page.
+func (b *ShopeeDriver) NavigateToOrders(ctx context.Context) error {
+	const maxRetries = 5
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		finder, err := b.Workflow.FreshDump(ctx)
+		if err != nil {
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
+		screen := DetectScreen(finder)
+		if screen == ScreenOrders {
+			return nil
+		}
+
+		// If we're on the Me page, look for "View Purchase History".
+		if screen == ScreenMe {
+			historyBtn := finder.ByText("View Purchase History", false)
+			if historyBtn != nil {
+				c := historyBtn.Center()
+				if err := b.Dev.Tap(ctx, c.X, c.Y); err != nil {
+					return err
+				}
+				_, err := b.Workflow.WaitForElement(ctx, 5*time.Second,
+					core.HasText("My Purchases"))
+				if err == nil {
+					return nil
+				}
+				continue
+			}
+			// Scroll down to find "View Purchase History" on the Me page.
+			if err := b.Workflow.ScrollDown(ctx); err != nil {
+				return err
+			}
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+
+		// Navigate to Me tab first.
+		meTab := finder.First(core.HasContentDesc("tab_bar_button_me"))
+		if meTab != nil {
+			c := meTab.Center()
+			if err := b.Dev.Tap(ctx, c.X, c.Y); err != nil {
+				return err
+			}
+			time.Sleep(1 * time.Second)
+			continue
 		}
 
 		if err := b.Workflow.BackOrRelaunch(ctx, PackageName); err != nil {

@@ -17,6 +17,7 @@ var shopeeCmd = &cobra.Command{
 
 Available domains:
   cart     View shopping cart contents
+  order    View and reorder past orders
   search   Search for products`,
 }
 
@@ -198,6 +199,83 @@ Presses Back to exit the checkout page after parsing.`,
 	},
 }
 
+var shopeeOrderCmd = &cobra.Command{
+	Use:   "order",
+	Short: "Shopee order commands",
+	Example: `  pincer shopee order list
+  pincer shopee order list --status completed --limit 3
+  pincer shopee order reorder --item "SONY"`,
+}
+
+var shopeeOrderListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List past orders from My Purchases",
+	Long: `List orders from the Shopee My Purchases page. Each order includes
+the shop name, order status, and items with name, variation, quantity,
+and price.`,
+	Example: `  pincer shopee order list
+  pincer shopee order list --status completed
+  pincer shopee order list --limit 3 | jq '.data.orders[] | {shop, status}'`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		status, _ := cmd.Flags().GetString("status")
+		limit, _ := cmd.Flags().GetInt("limit")
+
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
+		defer cancel()
+
+		driver, err := shopee.NewShopeeDriver(newADB())
+		if err != nil {
+			outputError(err)
+			return nil
+		}
+
+		result, err := commands.OrderList(ctx, driver, status, limit)
+		if err != nil {
+			outputError(err)
+			return nil
+		}
+
+		outputJSON(core.NewResponse(result))
+		return nil
+	},
+}
+
+var shopeeOrderReorderCmd = &cobra.Command{
+	Use:   "reorder",
+	Short: "Re-add a past order item to cart via Buy Again",
+	Long: `Find a completed order containing the specified item (case-insensitive
+substring match) and tap the "Buy Again" button. If a variant/quantity
+picker appears, it will be confirmed automatically.`,
+	Example: `  pincer shopee order reorder --item "SONY"
+  pincer shopee order reorder -i "wireless charger"`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		item, _ := cmd.Flags().GetString("item")
+
+		if item == "" {
+			outputError(core.NewDriverError("missing_argument", "--item is required"))
+			return nil
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
+		defer cancel()
+
+		driver, err := shopee.NewShopeeDriver(newADB())
+		if err != nil {
+			outputError(err)
+			return nil
+		}
+
+		result, err := commands.OrderReorder(ctx, driver, item)
+		if err != nil {
+			outputError(err)
+			return nil
+		}
+
+		outputJSON(core.NewResponse(result))
+		return nil
+	},
+}
+
 func init() {
 	shopeeSearchCmd.Flags().StringP("query", "q", "", "Search query (required)")
 
@@ -206,7 +284,13 @@ func init() {
 
 	shopeeCartRemoveCmd.Flags().StringP("item", "i", "", "Item name to search for (required)")
 
+	shopeeOrderListCmd.Flags().StringP("status", "s", "", "Filter by status tab (completed, to ship, to receive, cancelled)")
+	shopeeOrderListCmd.Flags().IntP("limit", "l", 5, "Maximum number of orders to return")
+
+	shopeeOrderReorderCmd.Flags().StringP("item", "i", "", "Item name to search for (required)")
+
+	shopeeOrderCmd.AddCommand(shopeeOrderListCmd, shopeeOrderReorderCmd)
 	shopeeCartCmd.AddCommand(shopeeCartListCmd, shopeeCartUpdateCmd, shopeeCartRemoveCmd, shopeeCartCheckoutCmd)
-	shopeeCmd.AddCommand(shopeeCartCmd, shopeeSearchCmd)
+	shopeeCmd.AddCommand(shopeeCartCmd, shopeeOrderCmd, shopeeSearchCmd)
 	rootCmd.AddCommand(shopeeCmd)
 }

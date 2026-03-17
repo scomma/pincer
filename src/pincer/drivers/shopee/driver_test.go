@@ -40,14 +40,14 @@ func TestDetectScreenCart(t *testing.T) {
 	}
 }
 
-func TestDetectScreenMe(t *testing.T) {
+func TestDetectScreenOrders(t *testing.T) {
 	data := loadFixture(t, "../../../../tests/fixtures/shopee/orders.xml")
 	finder, err := core.NewElementFinderFromXML(data)
 	if err != nil {
 		t.Fatalf("parsing: %v", err)
 	}
 	screen := DetectScreen(finder)
-	if screen != ScreenMe {
-		t.Errorf("expected ME, got %s", screen)
+	if screen != ScreenOrders {
+		t.Errorf("expected ORDERS, got %s", screen)
 	}
 }
