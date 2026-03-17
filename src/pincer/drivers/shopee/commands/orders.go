@@ -117,7 +117,8 @@ func OrderList(ctx context.Context, driver *shopee.ShopeeDriver, status string, 
 	}, nil
 }
 
-// OrderReorder finds a past order matching itemName and taps "Buy Again".
+// OrderReorder finds a completed order matching itemName, opens the product's
+// live view, selects the same variant, and adds it to cart.
 func OrderReorder(ctx context.Context, driver *shopee.ShopeeDriver, itemName string) (*ReorderResult, error) {
 	if err := driver.EnsureAppRunning(ctx); err != nil {
 		return nil, fmt.Errorf("ensure app running: %w", err)
@@ -127,12 +128,10 @@ func OrderReorder(ctx context.Context, driver *shopee.ShopeeDriver, itemName str
 		return nil, fmt.Errorf("navigate to orders: %w", err)
 	}
 
-	// Tap "Completed" tab since Buy Again is available on completed orders.
+	// Tap "Completed" tab.
 	tab, err := driver.Workflow.WaitForElement(ctx, 5*time.Second, core.HasText("Completed"))
 	if err == nil && tab != nil {
-		if err := tab.Tap(ctx, driver.Dev); err != nil {
-			return nil, fmt.Errorf("tap Completed tab: %w", err)
-		}
+		_ = tab.Tap(ctx, driver.Dev)
 		time.Sleep(1 * time.Second)
 	}
 
@@ -150,67 +149,209 @@ func OrderReorder(ctx context.Context, driver *shopee.ShopeeDriver, itemName str
 			return nil, err
 		}
 
-		// Find all order shop headers and item sections to locate the matching item.
-		shopHeaders := finder.All(core.HasID("viewShopHeader"))
-		if len(shopHeaders) == 0 {
-			shopHeaders = finder.All(core.HasID("labelShopName"))
-		}
-
 		itemSections := finder.All(core.HasID("sectionItemInfo"))
-
 		for _, section := range itemSections {
 			name := orderItemName(section)
 			if name == "" || !strings.Contains(strings.ToLower(name), lowerName) {
 				continue
 			}
 
-			// Found the matching item. Determine shop name.
+			variation := orderItemVariation(section, name)
 			shopName := nearestShopAbove(shopEntriesFromElements(
 				finder.All(core.HasID("labelShopName")),
 			), section.Bounds.Top)
 
-			// Find the "Buy Again" button near this order card.
-			buyAgainBtn := findBuyAgainNear(finder, section.Bounds.Top, section.Bounds.Bottom, shopHeaders)
-			if buyAgainBtn == nil {
-				return nil, fmt.Errorf("found item %q but could not locate Buy Again button", itemName)
+			// Step 1: Tap the order card to open Order Details.
+			orderCard := findClickableAncestor(section)
+			if orderCard == nil {
+				orderCard = section
 			}
-
-			// The "Buy Again" text element itself may not be clickable.
-			// Walk up to find a clickable parent.
-			clickTarget := findClickableAncestor(buyAgainBtn)
-			if clickTarget == nil {
-				clickTarget = buyAgainBtn
+			if err := orderCard.Tap(ctx, driver.Dev); err != nil {
+				return nil, fmt.Errorf("tap order card: %w", err)
 			}
+			time.Sleep(3 * time.Second)
 
-			if err := clickTarget.Tap(ctx, driver.Dev); err != nil {
-				return nil, fmt.Errorf("tap Buy Again: %w", err)
+			// Step 2: On Order Details, tap the item to open product snapshot.
+			result, err := reorderFromOrderDetails(ctx, driver, name, variation, shopName)
+			if err != nil {
+				// Try to go back if something went wrong.
+				_ = driver.Dev.KeyEvent(ctx, "KEYCODE_BACK")
+				return nil, err
 			}
-
-			// Wait for the result — could be a product page, variant picker, or direct add.
-			time.Sleep(2 * time.Second)
-
-			// Check if a variant/quantity picker appeared and confirm it.
-			if err := confirmVariantPickerIfPresent(ctx, driver); err != nil {
-				return nil, fmt.Errorf("confirm variant picker: %w", err)
-			}
-
-			return &ReorderResult{
-				Item:    name,
-				Shop:    shopName,
-				Success: true,
-				Message: "Buy Again tapped successfully",
-			}, nil
+			return result, nil
 		}
 
 		if scroll < maxScrolls {
-			if err := driver.Workflow.ScrollDown(ctx); err != nil {
-				return nil, err
-			}
+			_ = driver.Workflow.ScrollDown(ctx)
 			time.Sleep(250 * time.Millisecond)
 		}
 	}
 
 	return nil, fmt.Errorf("order item matching %q not found", itemName)
+}
+
+// reorderFromOrderDetails handles the flow from Order Details → product snapshot
+// → Live View → variant picker → Add to Cart.
+func reorderFromOrderDetails(ctx context.Context, driver *shopee.ShopeeDriver, itemName, variation, shopName string) (*ReorderResult, error) {
+	// Find and tap the item in Order Details to open product snapshot.
+	finder, err := driver.Workflow.FreshDump(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	sections := finder.All(core.HasID("sectionItemInfo"))
+	lowerName := strings.ToLower(itemName)
+	tapped := false
+	for _, section := range sections {
+		name := orderItemName(section)
+		if strings.Contains(strings.ToLower(name), lowerName) {
+			clickable := findClickableAncestor(section)
+			if clickable == nil {
+				clickable = section
+			}
+			if err := clickable.Tap(ctx, driver.Dev); err != nil {
+				return nil, fmt.Errorf("tap item in order details: %w", err)
+			}
+			tapped = true
+			break
+		}
+	}
+	if !tapped {
+		return nil, fmt.Errorf("item %q not found in order details", itemName)
+	}
+	time.Sleep(3 * time.Second)
+
+	// We're now on the product snapshot page. Find and tap "Live View".
+	finder, err = driver.Workflow.FreshDump(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Scroll down to find the "Live View" link if not visible.
+	liveView := finder.ByText("Live View", false)
+	if liveView == nil {
+		_ = driver.Workflow.ScrollDown(ctx)
+		time.Sleep(1 * time.Second)
+		finder, err = driver.Workflow.FreshDump(ctx)
+		if err != nil {
+			return nil, err
+		}
+		liveView = finder.ByText("Live View", false)
+	}
+	if liveView == nil {
+		return nil, core.NewDriverError("element_not_found", "Live View link not found on product snapshot")
+	}
+
+	clickable := findClickableAncestor(liveView)
+	if clickable == nil {
+		clickable = liveView
+	}
+	if err := clickable.Tap(ctx, driver.Dev); err != nil {
+		return nil, fmt.Errorf("tap Live View: %w", err)
+	}
+	time.Sleep(4 * time.Second)
+
+	// Now on the live product page. Tap "Add to Cart".
+	finder, err = driver.Workflow.FreshDump(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	addCartBtn := finder.ByID("buttonProductAddCart")
+	if addCartBtn == nil {
+		return nil, core.NewDriverError("element_not_found", "Add to Cart button not found on product page")
+	}
+	if err := addCartBtn.Tap(ctx, driver.Dev); err != nil {
+		return nil, fmt.Errorf("tap Add to Cart: %w", err)
+	}
+	time.Sleep(3 * time.Second)
+
+	// Variant picker should appear. Select the matching variant.
+	if err := selectVariantAndConfirm(ctx, driver, variation); err != nil {
+		return nil, err
+	}
+
+	return &ReorderResult{
+		Item:    itemName,
+		Shop:    shopName,
+		Success: true,
+		Message: fmt.Sprintf("Added to cart with variant %q", variation),
+	}, nil
+}
+
+// selectVariantAndConfirm selects the specified variant in the picker and
+// taps the confirm/Add to Cart button.
+func selectVariantAndConfirm(ctx context.Context, driver *shopee.ShopeeDriver, targetVariation string) error {
+	finder, err := driver.Workflow.FreshDump(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Find variant options (buttonOption_unselected or buttonOption_selected).
+	options := finder.All(func(e *core.Element) bool {
+		return strings.HasPrefix(e.ResourceID, "buttonOption_")
+	})
+
+	if len(options) == 0 {
+		// No variant picker — single-variant product, just confirm.
+		return tapAddToCartConfirm(ctx, driver)
+	}
+
+	// Find the option whose text child matches the target variation.
+	lowerTarget := strings.ToLower(strings.TrimSpace(targetVariation))
+	// Strip date suffixes like ", starting 10-02-2026" from variation.
+	if idx := strings.Index(lowerTarget, ", starting"); idx > 0 {
+		lowerTarget = lowerTarget[:idx]
+	}
+
+	for _, opt := range options {
+		var optText string
+		walkDescendants(opt, func(child *core.Element) {
+			if optText == "" && child.Text != "" {
+				optText = strings.TrimSpace(child.Text)
+			}
+		})
+		if strings.EqualFold(strings.TrimSpace(optText), strings.TrimSpace(lowerTarget)) ||
+			strings.Contains(strings.ToLower(optText), lowerTarget) {
+			if err := opt.Tap(ctx, driver.Dev); err != nil {
+				return fmt.Errorf("tap variant %q: %w", optText, err)
+			}
+			time.Sleep(1 * time.Second)
+			break
+		}
+	}
+
+	return tapAddToCartConfirm(ctx, driver)
+}
+
+// tapAddToCartConfirm scrolls down in the variant picker to find and tap
+// the Add to Cart confirmation button.
+func tapAddToCartConfirm(ctx context.Context, driver *shopee.ShopeeDriver) error {
+	// The confirm button may be below the variant options. Scroll down if needed.
+	for i := 0; i < 3; i++ {
+		finder, err := driver.Workflow.FreshDump(ctx)
+		if err != nil {
+			return err
+		}
+
+		// Look for "Add to Cart" text in the picker (not the product page button).
+		addBtn := finder.ByText("Add to Cart", false)
+		if addBtn != nil {
+			clickable := findClickableAncestor(addBtn)
+			if clickable == nil {
+				clickable = addBtn
+			}
+			if err := clickable.Tap(ctx, driver.Dev); err != nil {
+				return fmt.Errorf("tap Add to Cart confirm: %w", err)
+			}
+			time.Sleep(2 * time.Second)
+			return nil
+		}
+
+		_ = driver.Workflow.ScrollDown(ctx)
+		time.Sleep(500 * time.Millisecond)
+	}
+	return fmt.Errorf("Add to Cart confirm button not found in variant picker")
 }
 
 // parseOrders extracts Order structs from a UI dump of the My Purchases page.

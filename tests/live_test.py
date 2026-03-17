@@ -464,6 +464,30 @@ def case_11(h: Harness) -> CaseResult:
     return passed("11", "LINE chat send to Keep Memo", f"message={message!r}")
 
 
+def case_12(h: Harness) -> CaseResult:
+    # List completed orders
+    payload = h.expect_ok(h.pincer("shopee", "order", "list", "--status", "completed", "--limit", "3"))
+    orders = (payload.get("data") or {}).get("orders") or []
+    h.require(bool(orders), "Shopee order list returned no completed orders")
+    h.require(orders[0].get("shop"), "First order missing shop name")
+    items = orders[0].get("items") or []
+    h.require(bool(items), "First order has no items")
+    # Reorder the cheapest item (to minimize cart impact)
+    cheapest = min(
+        [(item, order) for order in orders for item in (order.get("items") or []) if item.get("price")],
+        key=lambda x: float(x[0]["price"].replace("฿", "").replace(",", "") or "999999"),
+        default=(None, None),
+    )
+    h.require(cheapest[0] is not None, "No priced items in completed orders")
+    item_name = cheapest[0]["name"][:30]  # substring match
+    reorder = h.expect_ok(h.pincer("shopee", "order", "reorder", "--item", item_name))
+    data = reorder.get("data") or {}
+    h.require(data.get("success") is True, f"Reorder failed: {data.get('message')}")
+    # Clean up: remove the just-added item from cart
+    h.pincer("shopee", "cart", "remove", "--item", item_name)
+    return passed("12", "Shopee order list + reorder", f"item={data.get('item','')[:50]!r} variant={data.get('message','')}")
+
+
 def case_error_contract(h: Harness) -> CaseResult:
     payload = h.expect_error(h.pincer("shopee", "search"))
     return passed("E", "stderr error contract", f"error={payload.get('error')!r}")
@@ -559,6 +583,7 @@ DOCUMENTED_CASES = [
     Case("9", "Rapid cross-app sequence", "Run Grab -> Shopee -> LINE -> Grab in one chain.", case_9),
     Case("10", "Deep sub-screen recovery", "Recover Grab from a deeper sub-screen.", case_10),
     Case("11", "LINE chat send to Keep Memo", "Send a message to Keep Memo and verify it.", case_11),
+    Case("12", "Shopee order list + reorder", "List completed orders and reorder cheapest item.", case_12),
 ]
 
 
