@@ -3,16 +3,12 @@ package commands
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/prathan/pincer/src/pincer/core"
 	"github.com/prathan/pincer/src/pincer/drivers/shopee"
 )
-
-// DefaultMaxTotal is the default safety limit (THB) for checkout.
-const DefaultMaxTotal = 100.0
 
 // CheckoutQuotation is the output of `shopee cart checkout`.
 type CheckoutQuotation struct {
@@ -21,8 +17,6 @@ type CheckoutQuotation struct {
 	Shipping        string         `json:"shipping"`
 	VoucherDiscount string         `json:"voucher_discount,omitempty"`
 	Total           string         `json:"total"`
-	WithinLimit     bool           `json:"within_limit"`
-	MaxTotal        float64        `json:"max_total"`
 }
 
 // CheckoutItem represents a single item on the checkout page.
@@ -34,12 +28,8 @@ type CheckoutItem struct {
 }
 
 // CartCheckout selects all cart items, proceeds to the checkout page,
-// parses the quotation, and returns it as JSON. It NEVER taps Place Order.
-func CartCheckout(ctx context.Context, driver *shopee.ShopeeDriver, maxTotal float64) (*CheckoutQuotation, error) {
-	if maxTotal <= 0 {
-		maxTotal = DefaultMaxTotal
-	}
-
+// parses the quotation, and returns it as JSON.
+func CartCheckout(ctx context.Context, driver *shopee.ShopeeDriver) (*CheckoutQuotation, error) {
 	if err := driver.EnsureAppRunning(ctx); err != nil {
 		return nil, fmt.Errorf("ensure app running: %w", err)
 	}
@@ -73,27 +63,6 @@ func CartCheckout(ctx context.Context, driver *shopee.ShopeeDriver, maxTotal flo
 		return nil, fmt.Errorf("read cart subtotal: %w", err)
 	}
 
-	subtotalElem := finder.First(core.HasID("labelSubTotalPrice"))
-	subtotalText := ""
-	if subtotalElem != nil {
-		subtotalText = strings.TrimSpace(subtotalElem.Text)
-	}
-
-	// SAFETY CHECK #1: parse subtotal and verify within limit before entering checkout.
-	if subtotalText != "" {
-		subtotalValue, parseErr := parseTHBPrice(subtotalText)
-		if parseErr == nil && subtotalValue > maxTotal {
-			// Over limit -- do NOT proceed to checkout. Press back to be safe.
-			_ = driver.Dev.KeyEvent(ctx, "KEYCODE_BACK")
-			return &CheckoutQuotation{
-				Subtotal:    subtotalText,
-				Total:       subtotalText,
-				WithinLimit: false,
-				MaxTotal:    maxTotal,
-			}, nil
-		}
-	}
-
 	// Tap the Checkout button to proceed.
 	checkoutBtn := finder.First(core.HasID("buttonCheckout"))
 	if checkoutBtn == nil {
@@ -115,7 +84,7 @@ func CartCheckout(ctx context.Context, driver *shopee.ShopeeDriver, maxTotal flo
 
 	// From this point, ensure we ALWAYS press BACK to exit checkout,
 	// even on error.
-	quotation, parseErr := parseCheckoutPage(ctx, driver, maxTotal)
+	quotation, parseErr := parseCheckoutPage(ctx, driver)
 
 	// Exit the checkout page by pressing back.
 	backErr := pressCheckoutBack(ctx, driver)
@@ -123,10 +92,8 @@ func CartCheckout(ctx context.Context, driver *shopee.ShopeeDriver, maxTotal flo
 	if parseErr != nil {
 		return nil, fmt.Errorf("parse checkout page: %w", parseErr)
 	}
-	if backErr != nil {
-		// We still return the quotation; the back-press failure is secondary.
-		quotation.WithinLimit = quotation.WithinLimit // preserve
-	}
+	// back-press failure is secondary; we still return the quotation.
+	_ = backErr
 
 	return quotation, nil
 }
@@ -175,10 +142,8 @@ func selectAllItems(ctx context.Context, driver *shopee.ShopeeDriver) error {
 
 // parseCheckoutPage reads the checkout/order-summary page and builds
 // the quotation. It scrolls once to find additional elements.
-func parseCheckoutPage(ctx context.Context, driver *shopee.ShopeeDriver, maxTotal float64) (*CheckoutQuotation, error) {
-	q := &CheckoutQuotation{
-		MaxTotal: maxTotal,
-	}
+func parseCheckoutPage(ctx context.Context, driver *shopee.ShopeeDriver) (*CheckoutQuotation, error) {
+	q := &CheckoutQuotation{}
 
 	// Parse visible elements, then scroll once and parse again.
 	for pass := 0; pass < 2; pass++ {
@@ -232,16 +197,6 @@ func parseCheckoutPage(ctx context.Context, driver *shopee.ShopeeDriver, maxTota
 		collectCheckoutItems(finder, q)
 	}
 
-	// SAFETY CHECK #2: verify total is within limit.
-	if q.Total != "" {
-		totalValue, parseErr := parseTHBPrice(q.Total)
-		if parseErr == nil && totalValue > maxTotal {
-			q.WithinLimit = false
-			return q, nil
-		}
-	}
-
-	q.WithinLimit = true
 	return q, nil
 }
 
@@ -294,15 +249,3 @@ func pressCheckoutBack(ctx context.Context, driver *shopee.ShopeeDriver) error {
 	return driver.Dev.KeyEvent(ctx, "KEYCODE_BACK")
 }
 
-// parseTHBPrice strips the Thai Baht symbol, commas, and spaces from a
-// price string and returns the numeric value.
-func parseTHBPrice(s string) (float64, error) {
-	s = strings.TrimSpace(s)
-	s = strings.ReplaceAll(s, "฿", "")
-	s = strings.ReplaceAll(s, ",", "")
-	s = strings.ReplaceAll(s, " ", "")
-	if s == "" {
-		return 0, fmt.Errorf("empty price string")
-	}
-	return strconv.ParseFloat(s, 64)
-}

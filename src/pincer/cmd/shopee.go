@@ -174,16 +174,10 @@ var shopeeCartCheckoutCmd = &cobra.Command{
 	Short: "Select all cart items, go to checkout, and return the quotation",
 	Long: `Select all items in the cart, proceed to the checkout page, parse the
 order quotation (totals, shipping, vouchers), and return it as JSON.
-
-SAFETY: This command NEVER taps Place Order. It reads the quotation and
-presses Back to exit. Two price-limit checks are performed: once from
-the cart subtotal and once from the checkout total.`,
+Presses Back to exit the checkout page after parsing.`,
 	Example: `  pincer shopee cart checkout
-  pincer shopee cart checkout --max-total 500
   pincer shopee cart checkout | jq '.data.total'`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		maxTotal, _ := cmd.Flags().GetFloat64("max-total")
-
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
 		defer cancel()
 
@@ -193,7 +187,7 @@ the cart subtotal and once from the checkout total.`,
 			return nil
 		}
 
-		result, err := commands.CartCheckout(ctx, driver, maxTotal)
+		result, err := commands.CartCheckout(ctx, driver)
 		if err != nil {
 			outputError(err)
 			return nil
@@ -211,8 +205,6 @@ func init() {
 	shopeeCartUpdateCmd.Flags().IntP("quantity", "q", 0, "Target quantity (required)")
 
 	shopeeCartRemoveCmd.Flags().StringP("item", "i", "", "Item name to search for (required)")
-
-	shopeeCartCheckoutCmd.Flags().Float64("max-total", commands.DefaultMaxTotal, "Maximum total (THB) safety limit")
 
 	shopeeCartCmd.AddCommand(shopeeCartListCmd, shopeeCartUpdateCmd, shopeeCartRemoveCmd, shopeeCartCheckoutCmd)
 	shopeeCmd.AddCommand(shopeeCartCmd, shopeeSearchCmd)
