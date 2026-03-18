@@ -114,6 +114,40 @@ messages are returned (most recent N).`,
 	},
 }
 
+var lineChatReadUnreadCmd = &cobra.Command{
+	Use:   "read-unread",
+	Short: "Read all unread chats in one pass",
+	Long: `List all chats with unread messages, open each one, read the messages,
+and return everything in a single JSON response. Each chat includes its
+name, unread count, and the recent messages.
+
+Use --limit to cap the number of messages per chat (default 10).`,
+	Example: `  pincer line chat read-unread
+  pincer line chat read-unread --limit 5
+  pincer line chat read-unread | jq '.data.chats[] | {name, unread_count, messages: [.messages[].text]}'`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		limit, _ := cmd.Flags().GetInt("limit")
+
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
+		defer cancel()
+
+		driver, err := line.NewLineDriver(newADB())
+		if err != nil {
+			outputError(err)
+			return nil
+		}
+
+		result, err := commands.ChatReadAllUnread(ctx, driver, limit)
+		if err != nil {
+			outputError(err)
+			return nil
+		}
+
+		outputJSON(core.NewResponse(result))
+		return nil
+	},
+}
+
 var lineChatSendCmd = &cobra.Command{
 	Use:   "send",
 	Short: "Send a message or location to a LINE chat",
@@ -188,7 +222,9 @@ func init() {
 	lineChatSendCmd.Flags().StringP("message", "m", "", "Text message to send")
 	lineChatSendCmd.Flags().StringP("location", "l", "", "Location to share: 'current' or a place name to search")
 
-	lineChatCmd.AddCommand(lineChatListCmd, lineChatReadCmd, lineChatSendCmd)
+	lineChatReadUnreadCmd.Flags().IntP("limit", "n", 10, "Limit messages per chat")
+
+	lineChatCmd.AddCommand(lineChatListCmd, lineChatReadCmd, lineChatReadUnreadCmd, lineChatSendCmd)
 	lineCmd.AddCommand(lineChatCmd)
 	rootCmd.AddCommand(lineCmd)
 }

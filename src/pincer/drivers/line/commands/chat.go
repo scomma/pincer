@@ -169,6 +169,120 @@ func findChildByID(e *core.Element, idSuffix string) *core.Element {
 	return nil
 }
 
+// UnreadChat holds one chat's unread messages for ChatReadAllUnread.
+type UnreadChat struct {
+	Name        string    `json:"name"`
+	UnreadCount int       `json:"unread_count"`
+	Messages    []Message `json:"messages"`
+}
+
+// ChatReadAllUnreadResult is the output of `line chat read-unread`.
+type ChatReadAllUnreadResult struct {
+	Chats []UnreadChat `json:"chats"`
+	Count int          `json:"count"`
+}
+
+// ChatReadAllUnread lists unread chats, opens each one, reads messages,
+// and returns everything in a single response.
+func ChatReadAllUnread(ctx context.Context, driver *line.LineDriver, msgLimit int) (*ChatReadAllUnreadResult, error) {
+	if err := driver.EnsureAppRunning(ctx); err != nil {
+		return nil, fmt.Errorf("ensure app running: %w", err)
+	}
+
+	if err := driver.NavigateToChats(ctx); err != nil {
+		return nil, fmt.Errorf("navigate to chats: %w", err)
+	}
+
+	// First pass: collect all unread chat names and counts.
+	var unreadChats []ChatEntry
+	seen := map[string]bool{}
+	const maxScrolls = 5
+
+	for scroll := 0; scroll <= maxScrolls; scroll++ {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		finder, err := driver.Workflow.FreshDump(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		newCount := 0
+		for _, c := range parseChatList(finder) {
+			if !seen[c.Name] && c.UnreadCount > 0 {
+				seen[c.Name] = true
+				unreadChats = append(unreadChats, c)
+				newCount++
+			}
+		}
+		if newCount == 0 {
+			break
+		}
+		if scroll < maxScrolls {
+			if err := driver.Workflow.ScrollDown(ctx); err != nil {
+				return nil, err
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
+
+	if len(unreadChats) == 0 {
+		return &ChatReadAllUnreadResult{Count: 0}, nil
+	}
+
+	// Second pass: open each unread chat, read messages, go back.
+	var results []UnreadChat
+	for _, entry := range unreadChats {
+		if ctx.Err() != nil {
+			break
+		}
+
+		// Navigate to chat list first (pressing back if in a chat detail).
+		if err := driver.NavigateToChats(ctx); err != nil {
+			break
+		}
+
+		chatEl, err := scrollToTopAndFindChat(ctx, driver, entry.Name)
+		if err != nil {
+			// Chat might have scrolled off or name changed. Skip it.
+			continue
+		}
+
+		if err := chatEl.Tap(ctx, driver.Dev); err != nil {
+			continue
+		}
+		_, _ = driver.Workflow.WaitForElement(ctx, 5*time.Second, isChatDetail)
+
+		detailFinder, err := driver.Workflow.FreshDump(ctx)
+		if err != nil {
+			_ = driver.Dev.KeyEvent(ctx, "KEYCODE_BACK")
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+
+		messages := parseChatMessages(detailFinder)
+		if msgLimit > 0 && len(messages) > msgLimit {
+			messages = messages[len(messages)-msgLimit:]
+		}
+
+		results = append(results, UnreadChat{
+			Name:        entry.Name,
+			UnreadCount: entry.UnreadCount,
+			Messages:    messages,
+		})
+
+		// Stay briefly so LINE registers the read, then go back.
+		time.Sleep(500 * time.Millisecond)
+		_ = driver.Dev.KeyEvent(ctx, "KEYCODE_BACK")
+		time.Sleep(750 * time.Millisecond)
+	}
+
+	return &ChatReadAllUnreadResult{
+		Chats: results,
+		Count: len(results),
+	}, nil
+}
+
 // Message represents a single message in a chat.
 type Message struct {
 	Sender string `json:"sender,omitempty"`
